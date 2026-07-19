@@ -147,7 +147,7 @@ def compare_average_mass_with_time(data_new, sorted_data_new, data_old, sorted_d
 
 
 
-def plot_m1_m2(data):
+def plot_m1_m2(data, title_context=""):
     m1_all = data[:, 8]
     m2_all = data[:, 9]
 
@@ -191,7 +191,8 @@ def plot_m1_m2(data):
     ax1.plot(x_lin, x_lin, color="black", linewidth=1, label="Boundary")
     ax1.plot(x_lin[x_lin >= 0.7], 1.4 - x_lin[x_lin >= 0.7], color="black", linestyle='--', label="Chandra Limit")
 
-    ax1.set_title("Systems with $M_1 < 1.4 M_\\odot$")
+    title1 = f"Systems with $M_1 < 1.4 M_\\odot${f' - {title_context}' if title_context else ''}"
+    ax1.set_title(title1)
     ax1.set_xlabel("M1 (Msun)")
     ax1.set_ylabel("M2 (Msun)")
 
@@ -211,7 +212,8 @@ def plot_m1_m2(data):
     x_high = np.linspace(1.4, max(m1_all), 100)
     ax2.plot(x_high, x_high, color="black", linewidth=1)
 
-    ax2.set_title("Systems with $M_1 > 1.4 M_\\odot$")
+    title2 = f"Systems with $M_1 > 1.4 M_\\odot${f' - {title_context}' if title_context else ''}"
+    ax2.set_title(title2)
     ax2.set_xlabel("M1 (Msun)")
     ax2.set_ylabel("M2 (Msun)")
 
@@ -281,12 +283,14 @@ def plot_log_log_mass(data):
     plt.tight_layout()
     plt.show()
 
-def mergers_vs_time(data):
+def mergers_vs_time(data, title_context=""):
     merge_time = data[:, 5]
 
     fig, ax = plt.subplots()
     ax.hist(merge_time, bins=20)
-    ax.title.set_text("Number of Mergers Over Time")
+    
+    title = f"Number of Mergers Over Time{f' - {title_context}' if title_context else ''}"
+    ax.title.set_text(title)
     ax.set_xlabel("Merger Times (Myr)")
     ax.set_ylabel("Count")
 
@@ -313,6 +317,18 @@ def z_overtime(data):
 
     plt.show()
 
+def seperate_by_rv(data):
+    rv_column = data[:, 1]
+    unique_rv_values = np.unique(rv_column)
+    rv_datasets = {}
+    
+    for rv in unique_rv_values:
+        mask = rv_column == rv
+        rv_datasets[rv] = data[mask]
+    
+    return rv_datasets, unique_rv_values
+
+
 
 
 # Collisions of at least 1 compact object (WD, NS, or BH)
@@ -334,7 +350,32 @@ plot_log_log_mass(sorted_CO)
 mergers_vs_time(sorted_CO)
 z_overtime(sorted_CO)
 
-#For each rv value, plot mergers vs time
-#Make M1 M2 plots for each variant of k plots
-#Number of mergers over rv and N (as well as late time scales)
+# Process WD mergers by RV values
+print("\n=== WD Mergers Analysis by RV ===")
+wd_rv_datasets, wd_rv_values = seperate_by_rv(sorted_WD)
+print(f"Found {len(wd_rv_values)} unique RV values in WD mergers: {wd_rv_values}")
 
+for rv in wd_rv_values:
+    print(f"\nProcessing WD data for RV = {rv} pc")
+    rv_data = wd_rv_datasets[rv]
+    sorted_rv_data = sort_binary_mass(rv_data)
+    print(f"  - Number of systems: {len(rv_data)}")
+    
+    context = f"WD Mergers, RV = {rv} pc"
+    plot_m1_m2(sorted_rv_data, title_context=context)
+    mergers_vs_time(sorted_rv_data, title_context=context)
+
+# Process CO collisions by RV values
+print("\n=== CO Collisions Analysis by RV ===")
+co_rv_datasets, co_rv_values = seperate_by_rv(sorted_CO)
+print(f"Found {len(co_rv_values)} unique RV values in CO collisions: {co_rv_values}")
+
+for rv in co_rv_values:
+    print(f"\nProcessing CO data for RV = {rv} pc")
+    rv_data = co_rv_datasets[rv]
+    sorted_rv_data = sort_binary_mass(rv_data)
+    print(f"  - Number of systems: {len(rv_data)}")
+    
+    context = f"CO Collisions, RV = {rv} pc"
+    plot_m1_m2(sorted_rv_data, title_context=context)
+    mergers_vs_time(sorted_rv_data, title_context=context)
