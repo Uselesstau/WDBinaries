@@ -18,433 +18,192 @@ def sort_binary_mass(data):
             k1[i], k2[i] = k2[i], k1[i]
     return data
 
-def compare_masses(sorted_data_new, sorted_data_old):
-    x = np.linspace(0, 1.4, 100)
-    y = np.linspace(0, 1.4, 100)
-    chandrasekhar_limit = 1.4
-
-    m1_old = sorted_data_old[:, 8]
-    m2_old = sorted_data_old[:, 9]
-    k1_old = sorted_data_old[:, 10]
-    k2_old = sorted_data_old[:, 11]
-
-    m1_new = sorted_data_new[:, 8]
-    m2_new = sorted_data_new[:, 9]
-    k1_new = sorted_data_new[:, 10]
-    k2_new = sorted_data_new[:, 11]
-
-    color_indices_old = (k1_old - 10) * 3 + (k2_old - 10)
-    color_indices_new = (k1_new - 10) * 3 + (k2_new - 10)
-
-    # Plot the data
-    fig, ax = plt.subplots()
-
-    ax.scatter(m1_old, m2_old, c=color_indices_old, cmap='tab10', vmin=0, vmax=8, marker='o', alpha=0.8)
-    ax.scatter(m1_new, m2_new, c=color_indices_new, cmap='tab10', vmin=0, vmax=8, marker='x', alpha=0.8)
-
-    ax.plot(x[x >= 0.69], chandrasekhar_limit - x[x >=0.69], label="Chandrasekhar Limit", color="black")
-    ax.plot(x, y, label="Boundry", color="black")
-    ax.yaxis.tick_right()
-    ax.yaxis.set_label_position("right")
-    ax.set_xlabel("M1 (Msun)")
-    ax.set_ylabel("M2 (Msun)")
-
-    # Create the Color Legend manually to ensure all 9 show up
-    cmap = plt.get_cmap('tab10')
-    norm = mcolors.Normalize(vmin=0, vmax=8)
-
-    color_handles = []
-    legend_labels = []
-
-    # Generate all 9 combinations in the exact same order as our math equation
-    combinations = list(itertools.product([10, 11, 12], [10, 11, 12]))
-
-    for idx, (k1_val, k2_val) in enumerate(combinations):
-        color = cmap(norm(idx))
-
-        handle = mlines.Line2D([], [], color=color, marker='o', linestyle='None', markersize=8)
-
-        color_handles.append(handle)
-        legend_labels.append(f"k1={k1_val}, k2={k2_val}")
-
-    # Add the color legend
-    color_legend = ax.legend(handles=color_handles, labels=legend_labels, title="Combinations",
-                             bbox_to_anchor=(0, 1), loc='upper left')
-    ax.add_artist(color_legend)
-
-    old_marker = mlines.Line2D([], [], color='black', marker='o', linestyle='None', label='5% Binary Fraction')
-    new_marker = mlines.Line2D([], [], color='black', marker='x', linestyle='None', label='50% Binary Fraction')
-    line_sum = mlines.Line2D([], [], color='black', label='Chandrasekhar Limit')
-
-    ax.legend(handles=[old_marker, new_marker, line_sum], loc='lower right')
-
-    plt.tight_layout()
-
-    plt.show()
-
-def compare_merger_time(data_new, data_old):
-    merge_time_old = data_old[:, 5]
-    merge_time_new = data_new[:, 5]
-
-    fig, ax = plt.subplots(1, 2)
-    ax[0].hist(merge_time_old, bins=20)
-    ax[0].title.set_text("5% Merger Times")
-    ax[0].set_xlabel("Merger Times (Myr)")
-    ax[0].set_ylabel("Count")
-
-    ax[1].hist(merge_time_new, bins=20)
-    ax[1].title.set_text("50% Merger Times")
-    ax[1].set_xlabel("Merger Times (Myr)")
-    ax[1].set_ylabel("Count")
-
-    plt.tight_layout()
-    plt.show()
-
-def compare_average_mass_with_time(data_new, sorted_data_new, data_old, sorted_data_old):
-    merge_time_old = data_old[:, 5]
-    m1_old = sorted_data_old[:, 8]
-    m2_old = sorted_data_old[:, 9]
-    mtotal_old = m1_old + m2_old
-    m_ratio_old = m2_old / m1_old
-
-
-    merge_time_new = data_new[:, 5]
-    m1_new = sorted_data_new[:, 8]
-    m2_new = sorted_data_new[:, 9]
-    mtotal_new = m1_new + m2_new
-    m_ratio_new = m2_new / m1_new
-
-    fig, ax = plt.subplots(2, 2)
-
-    ax[0, 0].scatter(merge_time_old, m_ratio_old, c="red")
-    ax[0, 0].scatter(merge_time_new, m_ratio_new, c="blue")
-    ax[0, 0].set_xlabel("Merger Times (Myr)")
-    ax[0, 0].set_ylabel("Average Merger Mass (Msun)")
-
-    ax[0, 1].scatter(merge_time_old, mtotal_old, c="red")
-    ax[0, 1].scatter(merge_time_new, mtotal_new, c="blue")
-    ax[0, 1].set_xlabel("Merger Times (Myr)")
-    ax[0, 1].set_ylabel("Total Merger Mass (Msun)")
-
-    bins = np.linspace(0, 14000, 20)
-    bin_indices_old = np.digitize(merge_time_old, bins)
-    bin_means_old = [merge_time_old[bin_indices_old == i].mean() for i in bins]
-    bin_indices_new = np.digitize(merge_time_new, bins)
-    bin_means_new = [merge_time_new[bin_indices_new == i].mean() for i in bins]
-
-    ax[1, 0].hist(bin_means_old, m_ratio_old, c="red")
-    ax[1, 0].hist(bin_means_new, m_ratio_new, c="blue")
-    ax[1, 0].set_xlabel("Merger Times (Myr)")
-    ax[1, 0].set_ylabel("Average Merger Mass (Msun)")
-
-    ax[1, 1].hist(bin_means_old, mtotal_old, c="red")
-    ax[1, 1].hist(bin_means_new, mtotal_new, c="blue")
-    ax[1, 1].set_xlabel("Merger Times (Myr)")
-    ax[1, 1].set_ylabel("Total Merger Mass (Msun)")
-
-    plt.tight_layout()
-    plt.show()
-
-
-
-def plot_m1_m2(data, title_context=""):
-    m1_all = data[:, 8]
-    m2_all = data[:, 9]
-
-    # Define mass bins and shared color logic
-    bins = [0.5, 1.1, 1.4]
-    cat1_all = np.digitize(m1_all, bins)
-    cat2_all = np.digitize(m2_all, bins)
-    color_indices_all = cat1_all * 4 + cat2_all
-
-    # Setup for legends
-    cmap = plt.get_cmap('tab20')
-    norm = mcolors.Normalize(vmin=0, vmax=15)
-    range_labels = ["<0.5", "0.5-1.1", "1.1-1.4", ">1.4"]
-
-    def create_pruned_legend(ax, present_indices):
-        handles = []
-        labels = []
-        # Sort indices to keep the legend order consistent
-        for idx in sorted(present_indices):
-            i, j = divmod(idx, 4)  # i is M1 cat, j is M2 cat
-            color = cmap(norm(idx))
-            handle = mlines.Line2D([], [], color=color, marker='o',
-                                   linestyle='None', markersize=8)
-            handles.append(handle)
-            labels.append(f"M1:{range_labels[i]}, M2:{range_labels[j]}")
-
-        return ax.legend(handles=handles, labels=labels, title="Mass Combinations ($M_\\odot$)",
-                         loc='upper left', fontsize='small', bbox_to_anchor=(1, 1))
-
-    # PLOT 1: M1 < 1.4 Msun
-    mask1 = m1_all < 1.4
-    m1_1 = m1_all[mask1]
-    m2_1 = m2_all[mask1]
-    idx_1 = color_indices_all[mask1]
-
-    fig1, ax1 = plt.subplots(figsize=(11, 7))
-    ax1.scatter(m1_1, m2_1, c=idx_1, cmap='tab20', vmin=0, vmax=15, alpha=0.8)
-
-    # Add reference lines for Plot 1
-    x_lin = np.linspace(0, 1.4, 100)
-    ax1.plot(x_lin, x_lin, color="black", linewidth=1, label="Boundary")
-    ax1.plot(x_lin[x_lin >= 0.7], 1.4 - x_lin[x_lin >= 0.7], color="black", linestyle='--', label="Chandra Limit")
-
-    title1 = f"Systems with $M_1 < 1.4 M_\\odot${f' - {title_context}' if title_context else ''}"
-    ax1.set_title(title1)
-    ax1.set_xlabel("M1 (Msun)")
-    ax1.set_ylabel("M2 (Msun)")
-
-    create_pruned_legend(ax1, np.unique(idx_1))
-    plt.tight_layout()
-
-    # PLOT 2: M1 > 1.4 Msun
-    mask2 = m1_all >= 1.4
-    m1_2 = m1_all[mask2]
-    m2_2 = m2_all[mask2]
-    idx_2 = color_indices_all[mask2]
-
-    fig2, ax2 = plt.subplots(figsize=(11, 7))
-    ax2.scatter(m1_2, m2_2, c=idx_2, cmap='tab20', vmin=0, vmax=15, alpha=0.8)
-
-    # Add reference lines for Plot 2 (Boundary only as it goes above 1.4)
-    x_high = np.linspace(1.4, max(m1_all), 100)
-    ax2.plot(x_high, x_high, color="black", linewidth=1)
-
-    title2 = f"Systems with $M_1 > 1.4 M_\\odot${f' - {title_context}' if title_context else ''}"
-    ax2.set_title(title2)
-    ax2.set_xlabel("M1 (Msun)")
-    ax2.set_ylabel("M2 (Msun)")
-
-    create_pruned_legend(ax2, np.unique(idx_2))
-    plt.tight_layout()
-
-    plt.show()
-
-def plot_log_log_mass(data, title_context=""):
-    m1 = data[:, 8]
-    m2 = data[:, 9]
-
-    # Define mass bins and categories
-    # <0.5 (0), 0.5-1.1 (1), 1.1-1.4 (2), >1.4 (3)
-    bins = [0.5, 1.1, 1.4]
-    cat1 = np.digitize(m1, bins)
-    cat2 = np.digitize(m2, bins)
-    color_indices = cat1 * 4 + cat2
-
-    # Setup Plot
-    fig, ax = plt.subplots(figsize=(10, 8))
-
-    # Scatter plot with log-log scale
-    scatter = ax.scatter(m1, m2, c=color_indices, cmap='tab20',
-                         vmin=0, vmax=15, marker='o', alpha=0.7, s=20)
-
-    ax.set_xscale('log')
-    ax.set_yscale('log')
-
-    # Add Reference Lines
-    # Boundary line (y = x)
-    x_range = np.logspace(np.log10(min(m1)), np.log10(max(m1)), 100)
-    ax.plot(x_range, x_range, color="black", linewidth=1, label="Boundary ($M_1=M_2$)")
-
-    # Chandrasekhar Limit line (M1 + M2 = 1.4)
-    # This is only relevant for masses < 1.4. In log-log, this is a curve.
-    m1_chandra = np.linspace(0.01, 1.39, 200)
-    ax.plot(m1_chandra, 1.4 - m1_chandra, color="black", linestyle='--', label="Chandra Limit")
-
-    cmap = plt.get_cmap('tab20')
-    norm = mcolors.Normalize(vmin=0, vmax=15)
-    range_labels = ["<0.5", "0.5-1.1", "1.1-1.4", ">1.4"]
-
-    present_indices = np.unique(color_indices)
-    color_handles = []
-    legend_labels = []
-
-    for idx in sorted(present_indices):
-        i, j = divmod(idx, 4)  # Get row (M1) and col (M2) indices
-        color = cmap(norm(idx))
-        handle = mlines.Line2D([], [], color=color, marker='o', linestyle='None', markersize=8)
-        color_handles.append(handle)
-        legend_labels.append(f"M1:{range_labels[i]}, M2:{range_labels[j]}")
-
-    # Add mass combination legend
-    color_legend = ax.legend(handles=color_handles, labels=legend_labels,
-                             title="Mass Combinations ($M_\\odot$)",
-                             bbox_to_anchor=(0, 1), loc='upper left', fontsize='small')
-    ax.add_artist(color_legend)
-
-    # Formatting
-    title = f"Binary Masses (Log-Log Scale){f' - {title_context}' if title_context else ''}"
-    ax.set_xlabel("Log $M_1$ ($M_\\odot$)")
-    ax.set_ylabel("Log $M_2$ ($M_\\odot$)")
-    ax.set_title(title)
-    ax.grid(True, which="both", ls="-", alpha=0.2)
-
-    plt.tight_layout()
-    plt.show()
-
 def _normalize_k_values(k_array):
-    #Normalize k values into groups: <10, [10-12], =13, =14
-    def normalize_single(k):
-        if k < 10:
-            return 0
-        elif k < 13:
-            return 1
-        elif k == 13:
-            return 2
-        else:  # k >= 14
-            return 3
-    return np.array([normalize_single(k) for k in k_array])
+    # Return k values as-is to get unique color for each k value
+    return k_array.astype(int)
 
 def _k_label(k_normalized):
-    #Convert normalized k value back to display label
-    labels = {0: "<10", 1: "10-12", 2: "13", 3: "≥14"}
-    return labels.get(int(k_normalized), str(int(k_normalized)))
+    # Display the actual k value
+    return f"k={int(k_normalized)}"
 
-def plot_m1_m2_by_k_types(data, title_context=""):
+def plot_m1_m2_combined(data, title_context=""):
+    #Plot m1 vs m2 (by mass) and by k-types in a single figure with 2 subplots
+    # Filter out masses less than 0.1
+    mask = (data[:, 8] >= 0.1) & (data[:, 9] >= 0.1)
+    data = data[mask]
+    
     m1_all = data[:, 8]
     m2_all = data[:, 9]
     k1_all = data[:, 10]
     k2_all = data[:, 11]
 
-    # Normalize k values into groups
-    k1_normalized = _normalize_k_values(k1_all)
-    k2_normalized = _normalize_k_values(k2_all)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7))
 
-    # Create color indices based on unique k1, k2 combinations present in data
-    unique_combinations = sorted(set(zip(k1_normalized, k2_normalized)))
-    k_combo_to_idx = {combo: idx for idx, combo in enumerate(unique_combinations)}
-    color_indices_all = np.array([k_combo_to_idx[(k1, k2)] for k1, k2 in zip(k1_normalized, k2_normalized)])
+    # LEFT PLOT: Mass Combinations
+    bins = [0.5, 1.1, 1.4]
+    cat1_all = np.digitize(m1_all, bins)
+    cat2_all = np.digitize(m2_all, bins)
+    color_indices_mass = cat1_all * 4 + cat2_all
 
-    # Setup for legends
-    n_combos = len(unique_combinations)
-    cmap = plt.get_cmap('tab20')
-    norm = mcolors.Normalize(vmin=0, vmax=n_combos - 1)
+    cmap_mass = plt.get_cmap('tab20')
+    norm_mass = mcolors.Normalize(vmin=0, vmax=15)
+    range_labels = ["<0.5", "0.5-1.1", "1.1-1.4", ">1.4"]
 
-    def create_pruned_k_legend(ax, present_indices):
-        handles = []
-        labels = []
-        
-        for idx in sorted(present_indices):
-            idx_int = int(idx)
-            color = cmap(norm(idx_int))
-            k1_val, k2_val = unique_combinations[idx_int]
-            handle = mlines.Line2D([], [], color=color, marker='o',
-                                   linestyle='None', markersize=8)
-            handles.append(handle)
-            labels.append(f"k1={_k_label(k1_val)}, k2={_k_label(k2_val)}")
-
-        return ax.legend(handles=handles, labels=labels, title="k1/k2 Combinations",
-                         loc='upper left', fontsize='small', bbox_to_anchor=(1, 1))
-
-    # PLOT 1: M1 < 1.4 Msun
-    mask1 = m1_all < 1.4
-    m1_1 = m1_all[mask1]
-    m2_1 = m2_all[mask1]
-    idx_1 = color_indices_all[mask1]
-
-    fig1, ax1 = plt.subplots(figsize=(11, 7))
-    ax1.scatter(m1_1, m2_1, c=idx_1, cmap=cmap, vmin=0, vmax=n_combos - 1, alpha=0.8)
-
-    # Add reference lines for Plot 1
-    x_lin = np.linspace(0, 1.4, 100)
-    ax1.plot(x_lin, x_lin, color="black", linewidth=1, label="Boundary")
-    ax1.plot(x_lin[x_lin >= 0.7], 1.4 - x_lin[x_lin >= 0.7], color="black", linestyle='--', label="Chandra Limit")
-
-    title1 = f"Systems with $M_1 < 1.4 M_\\odot${f' - {title_context}' if title_context else ''}"
-    ax1.set_title(title1)
+    ax1.scatter(m1_all, m2_all, c=color_indices_mass, cmap='tab20', vmin=0, vmax=15, alpha=0.8)
+    
+    x_range = np.linspace(0, max(m1_all), 100)
+    ax1.plot(x_range, x_range, color="black", linewidth=1, label="Boundary")
+    ax1.plot(x_range[x_range >= 0.7], 1.4 - x_range[x_range >= 0.7], color="black", linestyle='--', label="Chandra Limit")
+    ax1.axvline(x=1.4, color="red", linewidth=2, linestyle=':', label="M1 = 1.4 Msun")
+    
     ax1.set_xlabel("M1 (Msun)")
     ax1.set_ylabel("M2 (Msun)")
+    ax1.set_title(f"Binary Masses (M1 vs M2){f' - {title_context}' if title_context else ''}")
+    ax1.grid(alpha=0.3)
 
-    create_pruned_k_legend(ax1, np.unique(idx_1))
-    plt.tight_layout()
+    # Create legend for mass plot
+    present_indices_mass = np.unique(color_indices_mass)
+    handles_mass = []
+    labels_mass = []
+    for idx in sorted(present_indices_mass):
+        i, j = divmod(idx, 4)
+        color = cmap_mass(norm_mass(idx))
+        handle = mlines.Line2D([], [], color=color, marker='o', linestyle='None', markersize=8)
+        handles_mass.append(handle)
+        labels_mass.append(f"M1:{range_labels[i]}, M2:{range_labels[j]}")
+    
+    ax1.legend(handles=handles_mass, labels=labels_mass, title="Mass Combinations ($M_\\odot$)", loc='upper left', fontsize='small')
 
-    # PLOT 2: M1 > 1.4 Msun
-    mask2 = m1_all >= 1.4
-    m1_2 = m1_all[mask2]
-    m2_2 = m2_all[mask2]
-    idx_2 = color_indices_all[mask2]
+    # RIGHT PLOT: k-type Combinations
+    k1_normalized = _normalize_k_values(k1_all)
+    k2_normalized = _normalize_k_values(k2_all)
+    
+    unique_combinations = sorted(set(zip(k1_normalized, k2_normalized)))
+    k_combo_to_idx = {combo: idx for idx, combo in enumerate(unique_combinations)}
+    color_indices_k = np.array([k_combo_to_idx[(k1, k2)] for k1, k2 in zip(k1_normalized, k2_normalized)])
 
-    fig2, ax2 = plt.subplots(figsize=(11, 7))
-    ax2.scatter(m1_2, m2_2, c=idx_2, cmap=cmap, vmin=0, vmax=n_combos - 1, alpha=0.8)
+    n_combos = len(unique_combinations)
+    cmap_k = plt.get_cmap('tab20')
+    norm_k = mcolors.Normalize(vmin=0, vmax=n_combos - 1)
 
-    # Add reference lines for Plot 2 (Boundary only as it goes above 1.4)
-    x_high = np.linspace(1.4, max(m1_all), 100)
-    ax2.plot(x_high, x_high, color="black", linewidth=1)
-
-    title2 = f"Systems with $M_1 > 1.4 M_\\odot${f' - {title_context}' if title_context else ''}"
-    ax2.set_title(title2)
+    ax2.scatter(m1_all, m2_all, c=color_indices_k, cmap=cmap_k, vmin=0, vmax=n_combos - 1, alpha=0.8)
+    
+    ax2.plot(x_range, x_range, color="black", linewidth=1, label="Boundary")
+    ax2.plot(x_range[x_range >= 0.7], 1.4 - x_range[x_range >= 0.7], color="black", linestyle='--', label="Chandra Limit")
+    ax2.axvline(x=1.4, color="red", linewidth=2, linestyle=':', label="M1 = 1.4 Msun")
+    
     ax2.set_xlabel("M1 (Msun)")
     ax2.set_ylabel("M2 (Msun)")
+    ax2.set_title(f"Binary Masses by k Types{f' - {title_context}' if title_context else ''}")
+    ax2.grid(alpha=0.3)
 
-    create_pruned_k_legend(ax2, np.unique(idx_2))
+    # Create legend for k-type plot
+    present_indices_k = np.unique(color_indices_k)
+    handles_k = []
+    labels_k = []
+    for idx in sorted(present_indices_k):
+        idx_int = int(idx)
+        color = cmap_k(norm_k(idx_int))
+        k1_val, k2_val = unique_combinations[idx_int]
+        handle = mlines.Line2D([], [], color=color, marker='o', linestyle='None', markersize=8)
+        handles_k.append(handle)
+        labels_k.append(f"k1={_k_label(k1_val)}, k2={_k_label(k2_val)}")
+    
+    ax2.legend(handles=handles_k, labels=labels_k, title="k1/k2 Combinations", loc='upper left', fontsize='small')
+
     plt.tight_layout()
-
     plt.show()
 
-def plot_log_log_mass_by_k_types(data, title_context=""):
+def plot_log_log_mass_combined(data, title_context=""):
+    #Plot log-log masses (by mass) and by k-types in a single figure with 2 subplots
+    # Filter out masses less than 0.1
+    mask = (data[:, 8] >= 0.1) & (data[:, 9] >= 0.1)
+    data = data[mask]
+    
     m1 = data[:, 8]
     m2 = data[:, 9]
     k1 = data[:, 10]
     k2 = data[:, 11]
 
-    # Normalize k values into groups
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+
+    # LEFT PLOT: Mass Combinations (Log-Log)
+    bins = [0.5, 1.1, 1.4]
+    cat1 = np.digitize(m1, bins)
+    cat2 = np.digitize(m2, bins)
+    color_indices_mass = cat1 * 4 + cat2
+
+    ax1.scatter(m1, m2, c=color_indices_mass, cmap='tab20', vmin=0, vmax=15, marker='o', alpha=0.7, s=20)
+    
+    ax1.set_xscale('log')
+    ax1.set_yscale('log')
+
+    x_range = np.logspace(np.log10(np.min(m1)), np.log10(np.max(m1)), 100)
+    ax1.plot(x_range, x_range, color="black", linewidth=1, label="Boundary ($M_1=M_2$)")
+    
+    m1_chandra = np.linspace(0.01, 1.39, 200)
+    ax1.plot(m1_chandra, 1.4 - m1_chandra, color="black", linestyle='--', label="Chandra Limit")
+    
+    ax1.set_xlabel("Log $M_1$ ($M_\\odot$)")
+    ax1.set_ylabel("Log $M_2$ ($M_\\odot$)")
+    ax1.set_title(f"Binary Masses (Log-Log Scale){f' - {title_context}' if title_context else ''}")
+    ax1.grid(True, which="both", ls="-", alpha=0.2)
+
+    # Create legend for mass plot
+    cmap_mass = plt.get_cmap('tab20')
+    norm_mass = mcolors.Normalize(vmin=0, vmax=15)
+    range_labels = ["<0.5", "0.5-1.1", "1.1-1.4", ">1.4"]
+    
+    present_indices_mass = np.unique(color_indices_mass)
+    handles_mass = []
+    labels_mass = []
+    for idx in sorted(present_indices_mass):
+        i, j = divmod(idx, 4)
+        color = cmap_mass(norm_mass(idx))
+        handle = mlines.Line2D([], [], color=color, marker='o', linestyle='None', markersize=8)
+        handles_mass.append(handle)
+        labels_mass.append(f"M1:{range_labels[i]}, M2:{range_labels[j]}")
+    
+    ax1.legend(handles=handles_mass, labels=labels_mass, title="Mass Combinations ($M_\\odot$)", loc='upper left', fontsize='small')
+
+    # RIGHT PLOT: k-type Combinations (Log-Log)
     k1_normalized = _normalize_k_values(k1)
     k2_normalized = _normalize_k_values(k2)
-
-    # Create color indices based on unique k1, k2 combinations present in data
+    
     unique_combinations = sorted(set(zip(k1_normalized, k2_normalized)))
     k_combo_to_idx = {combo: idx for idx, combo in enumerate(unique_combinations)}
-    color_indices = np.array([k_combo_to_idx[(k1_val, k2_val)] for k1_val, k2_val in zip(k1_normalized, k2_normalized)])
+    color_indices_k = np.array([k_combo_to_idx[(k1_val, k2_val)] for k1_val, k2_val in zip(k1_normalized, k2_normalized)])
 
-    # Setup Plot
     n_combos = len(unique_combinations)
-    fig, ax = plt.subplots(figsize=(10, 8))
+    cmap_k = plt.get_cmap('tab20')
+    norm_k = mcolors.Normalize(vmin=0, vmax=n_combos - 1)
 
-    # Scatter plot with log-log scale
-    cmap = plt.get_cmap('tab20')
-    norm = mcolors.Normalize(vmin=0, vmax=n_combos - 1)
-    scatter = ax.scatter(m1, m2, c=color_indices, cmap=cmap,
-                         vmin=0, vmax=n_combos - 1, marker='o', alpha=0.7, s=20)
+    ax2.scatter(m1, m2, c=color_indices_k, cmap=cmap_k, vmin=0, vmax=n_combos - 1, marker='o', alpha=0.7, s=20)
+    
+    ax2.set_xscale('log')
+    ax2.set_yscale('log')
+    
+    ax2.plot(x_range, x_range, color="black", linewidth=1, label="Boundary ($M_1=M_2$)")
+    ax2.plot(m1_chandra, 1.4 - m1_chandra, color="black", linestyle='--', label="Chandra Limit")
+    
+    ax2.set_xlabel("Log $M_1$ ($M_\\odot$)")
+    ax2.set_ylabel("Log $M_2$ ($M_\\odot$)")
+    ax2.set_title(f"Binary Masses by k Types (Log-Log Scale){f' - {title_context}' if title_context else ''}")
+    ax2.grid(True, which="both", ls="-", alpha=0.2)
 
-    ax.set_xscale('log')
-    ax.set_yscale('log')
-
-    # Add Reference Lines
-    # Boundary line (y = x)
-    x_range = np.logspace(np.log10(min(m1)), np.log10(max(m1)), 100)
-    ax.plot(x_range, x_range, color="black", linewidth=1, label="Boundary ($M_1=M_2$)")
-
-    # Chandrasekhar Limit line (M1 + M2 = 1.4)
-    m1_chandra = np.linspace(0.01, 1.39, 200)
-    ax.plot(m1_chandra, 1.4 - m1_chandra, color="black", linestyle='--', label="Chandra Limit")
-
-    # Create legend
-    present_indices = np.unique(color_indices)
-    color_handles = []
-    legend_labels = []
-
-    for idx in sorted(present_indices):
+    # Create legend for k-type plot
+    present_indices_k = np.unique(color_indices_k)
+    handles_k = []
+    labels_k = []
+    for idx in sorted(present_indices_k):
         idx_int = int(idx)
-        color = cmap(norm(idx_int))
+        color = cmap_k(norm_k(idx_int))
         k1_val, k2_val = unique_combinations[idx_int]
         handle = mlines.Line2D([], [], color=color, marker='o', linestyle='None', markersize=8)
-        color_handles.append(handle)
-        legend_labels.append(f"k1={_k_label(k1_val)}, k2={_k_label(k2_val)}")
-
-    # Add k1/k2 combination legend
-    color_legend = ax.legend(handles=color_handles, labels=legend_labels,
-                             title="k1/k2 Combinations",
-                             bbox_to_anchor=(0, 1), loc='upper left', fontsize='small')
-    ax.add_artist(color_legend)
-
-    # Formatting
-    title = f"Binary Masses by k Types (Log-Log Scale){f' - {title_context}' if title_context else ''}"
-    ax.set_xlabel("Log $M_1$ ($M_\\odot$)")
-    ax.set_ylabel("Log $M_2$ ($M_\\odot$)")
-    ax.set_title(title)
-    ax.grid(True, which="both", ls="-", alpha=0.2)
+        handles_k.append(handle)
+        labels_k.append(f"k1={_k_label(k1_val)}, k2={_k_label(k2_val)}")
+    
+    ax2.legend(handles=handles_k, labels=labels_k, title="k1/k2 Combinations", loc='upper left', fontsize='small')
 
     plt.tight_layout()
     plt.show()
@@ -463,16 +222,139 @@ def mergers_vs_time(data, title_context=""):
     plt.tight_layout()
     plt.show()
 
+def filter_k_values(data, k_min=10):
+    #Remove points with any k<k_min (WD, NS, BH have k >= 10)
+    k1 = data[:, 10]
+    k2 = data[:, 11]
+    mask = (k1 >= k_min) & (k2 >= k_min)
+    return data[mask]
+
 def separate_by_rv(data):
     rv_column = data[:, 1]
     unique_rv_values = np.unique(rv_column)
     rv_datasets = {}
-    
+      
     for rv in unique_rv_values:
         mask = rv_column == rv
         rv_datasets[rv] = data[mask]
-    
+      
     return rv_datasets, unique_rv_values
+
+def filter_extreme_models(data, model_col_idx=0, percentile=95):
+    """
+    Takes a dataset (already grouped by RV) and removes any model
+    that has an extreme number of entries compared to the other models.
+    """
+    if len(data) == 0:
+        return data
+
+    model_ids = data[:, model_col_idx]
+
+    # 1. Get unique models and count the number of entries (rows) for each
+    unique_models, counts = np.unique(model_ids, return_counts=True)
+
+    # 2. Determine the threshold for entry counts
+    threshold = np.percentile(counts, percentile)
+
+    # 3. Identify models that fall at or below the threshold
+    valid_models = unique_models[counts <= threshold]
+
+    # 4. Keep ONLY the rows belonging to the valid models
+    mask = np.isin(model_ids, valid_models)
+    filtered_data = data[mask]
+
+    # Calculate stats for printing
+    removed_models_count = len(unique_models) - len(valid_models)
+    removed_entries_count = len(data) - len(filtered_data)
+
+    if removed_models_count > 0:
+        print(f"    - Threshold: {threshold:.0f} entries per model")
+        print(f"    - Removed {removed_entries_count} entries from {removed_models_count} extreme model(s)")
+    else:
+        print("    - No extreme models found.")
+
+    return filtered_data
+
+def overlay_mergers_by_rv(rv_datasets, data_type="WD"):
+    #Create overlay plot of merger/collision times for each RV value
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    # Define colors for each RV value
+    colors = plt.cm.tab10(np.linspace(0, 1, len(rv_datasets)))
+    
+    # Calculate global min and max across all RV datasets for equal bins
+    all_merge_times = []
+    for rv_data in rv_datasets.values():
+        all_merge_times.extend(rv_data[:, 5])
+    
+    global_min = np.min(all_merge_times)
+    global_max = np.max(all_merge_times)
+    
+    # Create bins that span the entire range equally
+    bins = np.linspace(global_min, global_max, 21)  # 20 bins (21 edges)
+    
+    for (rv, rv_data), color in zip(sorted(rv_datasets.items()), colors):
+        merge_times = rv_data[:, 5]  # Column 5 is t_merger(Myr)
+        ax.hist(merge_times, bins=bins, alpha=1.0, label=f"RV = {rv} pc", 
+                color=color, edgecolor=color, histtype='step', linewidth=2)
+    
+    ax.set_xlabel("Merger Times (Myr)")
+    ax.set_ylabel("Count")
+    ax.set_title(f"Overlaid Merger/Collision Times by RV - {data_type}")
+    ax.legend()
+    ax.grid(axis='y', alpha=0.3)
+    
+    plt.tight_layout()
+    plt.show()
+
+def mergers_over_time_loglog(rv_datasets, data_type="WD", start_time=150.0):
+    # Plot merger/collision counts over time in log-log scale (non-cumulative)
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    # Define colors for each RV value
+    colors = plt.cm.tab10(np.linspace(0, 1, len(rv_datasets)))
+    
+    # Calculate global min and max for equal bin edges across all datasets
+    all_merge_times = []
+    for rv_data in rv_datasets.values():
+        valid = rv_data[:, 5][rv_data[:, 5] >= start_time]
+        all_merge_times.extend(valid)
+    
+    if len(all_merge_times) > 0:
+        global_min = np.max([np.min(all_merge_times), start_time])
+        global_max = np.max(all_merge_times)
+        
+        # Create equal-sized bins for all datasets
+        num_bins = 20
+        bins = np.logspace(np.log10(global_min), np.log10(global_max), num_bins + 1)
+        bin_centers = (bins[:-1] + bins[1:]) / 2
+        
+        for (rv, rv_data), color in zip(sorted(rv_datasets.items()), colors):
+            merge_times = rv_data[:, 5]  # Column 5 is t_merger(Myr)
+            
+            # Filter times >= start_time
+            valid_times = merge_times[merge_times >= start_time]
+            
+            if len(valid_times) > 0:
+                # Create histogram (counts per bin, not cumulative)
+                counts, _ = np.histogram(valid_times, bins=bins)
+                
+                # Remove zero counts for log scale plotting
+                nonzero_mask = counts > 0
+                nonzero_times = bin_centers[nonzero_mask]
+                nonzero_counts = counts[nonzero_mask]
+                
+                if len(nonzero_counts) > 0:
+                    ax.loglog(nonzero_times, nonzero_counts, marker='o', linestyle='-', label=f"RV = {rv} pc", color=color, linewidth=2, markersize=6, alpha=0.7)
+    
+    ax.set_xlabel("Time (Myr)")
+    ax.set_ylabel("Merger/Collision Count per Bin")
+    ax.set_title(f"Merger/Collision Distribution Over Time (Log-Log) - {data_type}")
+    ax.legend()
+    ax.grid(True, which="both", alpha=0.3)
+    
+    plt.tight_layout()
+    plt.show()
 
 
 
@@ -485,56 +367,56 @@ WD_mergers = np.loadtxt("data/WD_mergers_binaryfraction.dat")
 sorted_CO = sort_binary_mass(CO_collisions)
 sorted_WD = sort_binary_mass(WD_mergers)
 
+# Filter to keep only systems with both k >= 10 (WD, NS, BH, or combinations)
+sorted_CO = filter_k_values(sorted_CO)
+sorted_WD = filter_k_values(sorted_WD)
+
 columns = ["modelID", "rv(pc)", "Rgc(kpc)", "Z", "N(x10^5)", "t_merger(Myr)", "ID1", "ID2", "M1(Msun)", "M2(Msun)", "k1", "k2", "r(pc)"]
 
-plt.close("all")
-
-plot_m1_m2(sorted_WD, title_context="WD Mergers")
-plot_m1_m2_by_k_types(sorted_WD, title_context="WD Mergers")
-mergers_vs_time(sorted_WD, title_context="WD Mergers")
-
-plot_m1_m2(sorted_CO, title_context="CO collisions")
-plot_m1_m2_by_k_types(sorted_CO, title_context="CO collisions")
-plot_log_log_mass(sorted_CO, title_context="CO collisions")
-plot_log_log_mass_by_k_types(sorted_CO, title_context="CO collisions")
-mergers_vs_time(sorted_CO, title_context="CO collisions")
-
-# Process WD mergers by RV values
-print("\n=== WD Mergers Analysis by RV ===")
+# === Process WD mergers by RV values ===
 wd_rv_datasets, wd_rv_values = separate_by_rv(sorted_WD)
 print(f"Found {len(wd_rv_values)} unique RV values in WD mergers: {wd_rv_values}")
 
-for rv in wd_rv_values:
-    print(f"\nProcessing WD data for RV = {rv} pc")
-    rv_data = wd_rv_datasets[rv]
-    sorted_rv_data = sort_binary_mass(rv_data)
-    print(f"  - Number of systems: {len(rv_data)}")
-    
-    context = f"WD Mergers, RV = {rv} pc"
-    plot_m1_m2(sorted_rv_data, title_context=context)
-    plot_m1_m2_by_k_types(sorted_rv_data, title_context=context)
-    mergers_vs_time(sorted_rv_data, title_context=context)
-
-# Process CO collisions by RV values
-print("\n=== CO Collisions Analysis by RV ===")
+# === Process CO collisions by RV values ===
 co_rv_datasets, co_rv_values = separate_by_rv(sorted_CO)
 print(f"Found {len(co_rv_values)} unique RV values in CO collisions: {co_rv_values}")
 
+# === WD Plots ===
+plot_m1_m2_combined(sorted_WD, title_context="WD Mergers")
+mergers_vs_time(sorted_WD, title_context="WD Mergers")
+overlay_mergers_by_rv(wd_rv_datasets, data_type="WD Mergers")
+mergers_over_time_loglog(wd_rv_datasets, data_type="WD Mergers")
+
+print("\n=== WD Mergers Analysis by RV ===")
+for rv in wd_rv_values:
+    print(f"\n--- Checking RV = {rv} ---")
+    # Filter Extremes
+    rv_data = wd_rv_datasets[rv]
+    print(f"  - Initial count: {len(rv_data)} systems")
+    rv_data_filtered_WD = filter_extreme_models(rv_data, 0, percentile=95)
+    print(f"  - After filtering: {len(rv_data_filtered_WD)} systems")
+
+    # Plots
+    context = f"WD Mergers, RV = {rv} pc"
+    plot_m1_m2_combined(rv_data_filtered_WD, title_context=context)
+
+# === CO Plots ===
+plot_log_log_mass_combined(sorted_CO, title_context="CO collisions")
+mergers_vs_time(sorted_CO, title_context="CO collisions")
+overlay_mergers_by_rv(co_rv_datasets, data_type="CO Collisions")
+mergers_over_time_loglog(co_rv_datasets, data_type="CO Collisions")
+
+print("\n=== CO Collisions Analysis by RV ===")
 for rv in co_rv_values:
-    print(f"\nProcessing CO data for RV = {rv} pc")
+    print(f"\n--- Checking RV = {rv} ---")
+    # Filter Extremes
     rv_data = co_rv_datasets[rv]
-    sorted_rv_data = sort_binary_mass(rv_data)
-    print(f"  - Number of systems: {len(rv_data)}")
-    
+    print(f"  - Initial count: {len(rv_data)} systems")
+    rv_data_filtered_CO = filter_extreme_models(rv_data, 0, percentile=95)
+    print(f"  - After filtering: {len(rv_data_filtered_CO)} systems")\
+
+    # Plots
     context = f"CO Collisions, RV = {rv} pc"
-    plot_m1_m2(sorted_rv_data, title_context=context)
-    plot_m1_m2_by_k_types(sorted_rv_data, title_context=context)
-    plot_log_log_mass(sorted_rv_data, title_context=context)
-    plot_log_log_mass_by_k_types(sorted_rv_data, title_context=context)
-    mergers_vs_time(sorted_rv_data, title_context=context)
+    plot_log_log_mass_combined(rv_data_filtered_CO, title_context=context)
 
-
-# remove points with any k<10 (we want to only look at WD, NS, BH, or combination of the mergers/collisions)
-# overlay mergers/collisions for each pc, N, and Z value. Remove any model numbers with extreme number of mergers/collisions for given rv
-# plot merger/collisions over time in log-log scale, start time at 1st merger/collison (~150 Myr), change histogram to follow envelope not fill
-# plot some figures together for readability: m1 vs m2 and by k-types with log scaled versions (4 plots 1 fig)
+# overlay mergers/collisions for each rv, N, and Z value.
