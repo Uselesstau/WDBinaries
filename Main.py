@@ -5,6 +5,14 @@ import matplotlib.colors as mcolors
 import itertools
 
 def sort_binary_mass(data):
+    """Rearranges each data entry such that mass 1 > mass 2
+
+    Arguments:
+    data - the raw data of Mergers or Collisions
+
+    Returns:
+    Rearranged data
+    """
     m1 = data[:,8]
     m2 = data[:,9]
     id1 = data[:,6]
@@ -27,7 +35,12 @@ def _k_label(k_normalized):
     return f"k={int(k_normalized)}"
 
 def plot_m1_m2_combined(data, title_context=""):
-    #Plot m1 vs m2 (by mass) and by k-types in a single figure with 2 subplots
+    """Plots m1 vs m2 for a given data set, coloring based off of mass regions and k-value combinations
+
+    Arguments:
+    data - the raw data of Mergers or Collisions
+    title_context - the title of the plot
+    """
     # Filter out masses less than 0.1
     mask = (data[:, 8] >= 0.1) & (data[:, 9] >= 0.1)
     data = data[mask]
@@ -115,7 +128,12 @@ def plot_m1_m2_combined(data, title_context=""):
     plt.show()
 
 def plot_log_log_mass_combined(data, title_context=""):
-    #Plot log-log masses (by mass) and by k-types in a single figure with 2 subplots
+    """Plots m1 vs m2 in log-log scale for a given data set, coloring based off of mass regions and k-value combinations
+
+    Arguments:
+    data - the raw data of Mergers or Collisions
+    title_context - the title of the plot
+    """
     # Filter out masses less than 0.1
     mask = (data[:, 8] >= 0.1) & (data[:, 9] >= 0.1)
     data = data[mask]
@@ -209,6 +227,12 @@ def plot_log_log_mass_combined(data, title_context=""):
     plt.show()
 
 def mergers_vs_time(data, title_context=""):
+    """Plots the evolution of the number of mergers over the time (bins=20)
+
+    Arguments:
+    data - the raw data of Mergers or Collisions
+    title_context - the title of the plot
+    """
     merge_time = data[:, 5]
 
     fig, ax = plt.subplots()
@@ -223,43 +247,64 @@ def mergers_vs_time(data, title_context=""):
     plt.show()
 
 def filter_k_values(data, k_min=10):
-    #Remove points with any k<k_min (WD, NS, BH have k >= 10)
+    """Removes k values smaller than k_min (k<10 = not a WD)
+
+    Arguments:
+    data - the raw data of Mergers or Collisions
+    k_min - the minimum k value
+
+    Returns:
+    Masked data with k values smaller than k_min (k<10 = not a WD)
+    """
     k1 = data[:, 10]
     k2 = data[:, 11]
     mask = (k1 >= k_min) & (k2 >= k_min)
     return data[mask]
 
-def separate_by_rv(data):
-    rv_column = data[:, 1]
-    unique_rv_values = np.unique(rv_column)
-    rv_datasets = {}
-      
-    for rv in unique_rv_values:
-        mask = rv_column == rv
-        rv_datasets[rv] = data[mask]
-      
-    return rv_datasets, unique_rv_values
+def separate_by_column(data, col_idx):
+    """Separates the data into a number of datasets equal to the number of unique values in a given column
+
+    Arguments:
+    data - the raw data of Mergers or Collisions
+    col_idx - the index of the column to separate by (e.g. 1 for rv, 3 for Z, 4 for N)
+
+    Returns:
+    grouped_datasets - dictionary of the datasets split by unique column values
+    unique_values - the unique values in the column
+    """
+    column_data = data[:, col_idx]
+    unique_values = np.unique(column_data)
+    grouped_datasets = {}
+
+    for val in unique_values:
+        mask = column_data == val
+        grouped_datasets[val] = data[mask]
+
+    return grouped_datasets, unique_values
 
 def filter_extreme_models(data, model_col_idx=0, percentile=95):
-    """
-    Takes a dataset (already grouped by RV) and removes any model
-    that has an extreme number of entries compared to the other models.
+    """Checks the data set and removes any models with an extreme number (default=95% tile)
+
+    Arguments:
+    data - the raw data of Mergers or Collisions
+    model_col_idx - the index of the model to check
+    percentile - the percentile to check
+
+    Returns:
+    filtered_data - the filtered data
     """
     if len(data) == 0:
         return data
 
     model_ids = data[:, model_col_idx]
 
-    # 1. Get unique models and count the number of entries (rows) for each
+    # Get unique models and count the number of entries (rows) for each
     unique_models, counts = np.unique(model_ids, return_counts=True)
 
-    # 2. Determine the threshold for entry counts
+    # Determine and filter thresholds
     threshold = np.percentile(counts, percentile)
-
-    # 3. Identify models that fall at or below the threshold
     valid_models = unique_models[counts <= threshold]
 
-    # 4. Keep ONLY the rows belonging to the valid models
     mask = np.isin(model_ids, valid_models)
     filtered_data = data[mask]
 
@@ -275,148 +320,194 @@ def filter_extreme_models(data, model_col_idx=0, percentile=95):
 
     return filtered_data
 
-def overlay_mergers_by_rv(rv_datasets, data_type="WD"):
-    #Create overlay plot of merger/collision times for each RV value
+def overlay_mergers_by_group(datasets, group_name="RV", data_type="WD"):
+    """Plots the mergers over time, overlaying each group value (rv, Z, N)
+
+    Arguments:
+    datasets - dictionary of grouped datasets
+    group_name - the string name of the column grouped by
+    data_type - the type of merger to plot
+    """
+    # Create overlay plot of merger/collision times for each group value
     fig, ax = plt.subplots(figsize=(12, 7))
-    
-    # Define colors for each RV value
-    colors = plt.cm.tab10(np.linspace(0, 1, len(rv_datasets)))
-    
-    # Calculate global min and max across all RV datasets for equal bins
+
+    # Define colors for each group value
+    colors = plt.cm.tab10(np.linspace(0, 1, len(datasets)))
+
+    # Calculate global min and max across all datasets for equal bins
     all_merge_times = []
-    for rv_data in rv_datasets.values():
-        all_merge_times.extend(rv_data[:, 5])
-    
+    for group_data in datasets.values():
+        all_merge_times.extend(group_data[:, 5])
+
+    if len(all_merge_times) == 0:
+        return
+
     global_min = np.min(all_merge_times)
     global_max = np.max(all_merge_times)
-    
+
     # Create bins that span the entire range equally
     bins = np.linspace(global_min, global_max, 21)  # 20 bins (21 edges)
-    
-    for (rv, rv_data), color in zip(sorted(rv_datasets.items()), colors):
-        merge_times = rv_data[:, 5]  # Column 5 is t_merger(Myr)
-        ax.hist(merge_times, bins=bins, alpha=1.0, label=f"RV = {rv} pc", 
-                color=color, edgecolor=color, histtype='step', linewidth=2)
-    
+
+    # Calculate the center of each bin for plotting the lines
+    bin_centers = (bins[:-1] + bins[1:]) / 2
+
+    for (val, group_data), color in zip(sorted(datasets.items()), colors):
+        merge_times = group_data[:, 5]  # Column 5 is t_merger(Myr)
+
+        # Calculate histogram counts manually
+        counts, _ = np.histogram(merge_times, bins=bins)
+
+        # Plot the counts at the center of each bin
+        ax.plot(bin_centers, counts, marker='o', linestyle='-',
+                label=f"{group_name} = {val}", color=color, linewidth=2,
+                markersize=6, alpha=0.8)
+
     ax.set_xlabel("Merger Times (Myr)")
     ax.set_ylabel("Count")
-    ax.set_title(f"Overlaid Merger/Collision Times by RV - {data_type}")
+    ax.set_title(f"Overlaid Merger/Collision Times by {group_name} - {data_type}")
     ax.legend()
-    ax.grid(axis='y', alpha=0.3)
-    
+    ax.grid(axis='both', alpha=0.3)
+
     plt.tight_layout()
     plt.show()
 
-def mergers_over_time_loglog(rv_datasets, data_type="WD", start_time=150.0):
+def mergers_over_time_loglog_by_group(datasets, group_name="RV", data_type="WD", start_time=150.0):
+    """Plots mergers over time in log-log scale, overlaying each group value
+
+    Arguments:
+    datasets - dictionary of grouped datasets
+    group_name - the string name of the column grouped by
+    data_type - the type of merger to plot
+    start_time - the start time to plot (in Myr)
+    """
     # Plot merger/collision counts over time in log-log scale (non-cumulative)
     fig, ax = plt.subplots(figsize=(12, 7))
-    
-    # Define colors for each RV value
-    colors = plt.cm.tab10(np.linspace(0, 1, len(rv_datasets)))
-    
+
+    # Define colors for each group value
+    colors = plt.cm.tab10(np.linspace(0, 1, len(datasets)))
+
     # Calculate global min and max for equal bin edges across all datasets
     all_merge_times = []
-    for rv_data in rv_datasets.values():
-        valid = rv_data[:, 5][rv_data[:, 5] >= start_time]
+    for group_data in datasets.values():
+        valid = group_data[:, 5][group_data[:, 5] >= start_time]
         all_merge_times.extend(valid)
-    
+
     if len(all_merge_times) > 0:
         global_min = np.max([np.min(all_merge_times), start_time])
         global_max = np.max(all_merge_times)
-        
+
         # Create equal-sized bins for all datasets
         num_bins = 20
         bins = np.logspace(np.log10(global_min), np.log10(global_max), num_bins + 1)
         bin_centers = (bins[:-1] + bins[1:]) / 2
-        
-        for (rv, rv_data), color in zip(sorted(rv_datasets.items()), colors):
-            merge_times = rv_data[:, 5]  # Column 5 is t_merger(Myr)
-            
+
+        for (val, group_data), color in zip(sorted(datasets.items()), colors):
+            merge_times = group_data[:, 5]  # Column 5 is t_merger(Myr)
+
             # Filter times >= start_time
             valid_times = merge_times[merge_times >= start_time]
-            
+
             if len(valid_times) > 0:
                 # Create histogram (counts per bin, not cumulative)
                 counts, _ = np.histogram(valid_times, bins=bins)
-                
+
                 # Remove zero counts for log scale plotting
                 nonzero_mask = counts > 0
                 nonzero_times = bin_centers[nonzero_mask]
                 nonzero_counts = counts[nonzero_mask]
-                
+
                 if len(nonzero_counts) > 0:
-                    ax.loglog(nonzero_times, nonzero_counts, marker='o', linestyle='-', label=f"RV = {rv} pc", color=color, linewidth=2, markersize=6, alpha=0.7)
-    
+                    ax.loglog(nonzero_times, nonzero_counts, marker='o', linestyle='-', label=f"{group_name} = {val}",
+                              color=color, linewidth=2, markersize=6, alpha=0.7)
+
     ax.set_xlabel("Time (Myr)")
     ax.set_ylabel("Merger/Collision Count per Bin")
-    ax.set_title(f"Merger/Collision Distribution Over Time (Log-Log) - {data_type}")
+    ax.set_title(f"Merger/Collision Distribution Over Time (Log-Log) by {group_name} - {data_type}")
     ax.legend()
     ax.grid(True, which="both", alpha=0.3)
-    
+
     plt.tight_layout()
     plt.show()
 
 
+# === Main functions for starting plots ===
+def setup_data():
+    # Collisions of at least 1 compact object (WD, NS, or BH)
+    co_collisions = np.loadtxt("data/CO_collisions_binaryfraction.dat")
+    # Collisions of at least 1 WD
+    wd_mergers = np.loadtxt("data/WD_mergers_binaryfraction.dat")
 
+    sorted_co = sort_binary_mass(co_collisions)
+    sorted_wd = sort_binary_mass(wd_mergers)
 
-# Collisions of at least 1 compact object (WD, NS, or BH)
-CO_collisions = np.loadtxt("data/CO_collisions_binaryfraction.dat")
-# Collisions of at least 1 WD
-WD_mergers = np.loadtxt("data/WD_mergers_binaryfraction.dat")
+    # Filter to keep only systems with both k >= 10 (WD, NS, BH, or combinations)
+    sorted_co = filter_k_values(sorted_co)
+    sorted_wd = filter_k_values(sorted_wd)
 
-sorted_CO = sort_binary_mass(CO_collisions)
-sorted_WD = sort_binary_mass(WD_mergers)
+    # Columns reference:
+    # [0:"modelID", 1:"rv(pc)", 2:"Rgc(kpc)", 3:"Z", 4:"N(x10^5)", 5:"t_merger(Myr)", ...]
 
-# Filter to keep only systems with both k >= 10 (WD, NS, BH, or combinations)
-sorted_CO = filter_k_values(sorted_CO)
-sorted_WD = filter_k_values(sorted_WD)
+    # plot WD data
+    wd_plots(sorted_wd)
 
-columns = ["modelID", "rv(pc)", "Rgc(kpc)", "Z", "N(x10^5)", "t_merger(Myr)", "ID1", "ID2", "M1(Msun)", "M2(Msun)", "k1", "k2", "r(pc)"]
+    # plot CO data
+    co_plots(sorted_co)
 
-# === Process WD mergers by RV values ===
-wd_rv_datasets, wd_rv_values = separate_by_rv(sorted_WD)
-print(f"Found {len(wd_rv_values)} unique RV values in WD mergers: {wd_rv_values}")
+def wd_plots(sorted_wd_mergers):
+    # === Generic WD Plots ===
+    plot_m1_m2_combined(sorted_wd_mergers, title_context="WD Mergers")
+    mergers_vs_time(sorted_wd_mergers, title_context="WD Mergers")
 
-# === Process CO collisions by RV values ===
-co_rv_datasets, co_rv_values = separate_by_rv(sorted_CO)
-print(f"Found {len(co_rv_values)} unique RV values in CO collisions: {co_rv_values}")
+    # === Overlay Plots for rv, Z, and N ===
+    groups_to_plot = [(1, "rv(pc)"), (3, "Z"), (4, "N(x10^5)")]
 
-# === WD Plots ===
-plot_m1_m2_combined(sorted_WD, title_context="WD Mergers")
-mergers_vs_time(sorted_WD, title_context="WD Mergers")
-overlay_mergers_by_rv(wd_rv_datasets, data_type="WD Mergers")
-mergers_over_time_loglog(wd_rv_datasets, data_type="WD Mergers")
+    for col_idx, group_name in groups_to_plot:
+        datasets, unique_values = separate_by_column(sorted_wd_mergers, col_idx)
+        print(f"\nFound {len(unique_values)} unique {group_name} values in WD mergers: {unique_values}")
 
-print("\n=== WD Mergers Analysis by RV ===")
-for rv in wd_rv_values:
-    print(f"\n--- Checking RV = {rv} ---")
-    # Filter Extremes
-    rv_data = wd_rv_datasets[rv]
-    print(f"  - Initial count: {len(rv_data)} systems")
-    rv_data_filtered_WD = filter_extreme_models(rv_data, 0, percentile=95)
-    print(f"  - After filtering: {len(rv_data_filtered_WD)} systems")
+        overlay_mergers_by_group(datasets, group_name=group_name, data_type="WD Mergers")
+        mergers_over_time_loglog_by_group(datasets, group_name=group_name, data_type="WD Mergers")
 
-    # Plots
-    context = f"WD Mergers, RV = {rv} pc"
-    plot_m1_m2_combined(rv_data_filtered_WD, title_context=context)
+        for unique_value in unique_values:
+            print(f"\n--- Checking {group_name} = {unique_value} ---")
 
-# === CO Plots ===
-plot_log_log_mass_combined(sorted_CO, title_context="CO collisions")
-mergers_vs_time(sorted_CO, title_context="CO collisions")
-overlay_mergers_by_rv(co_rv_datasets, data_type="CO Collisions")
-mergers_over_time_loglog(co_rv_datasets, data_type="CO Collisions")
+            # Filter Extremes
+            filtered_data = datasets[unique_value]
+            print(f"  - Initial count: {len(filtered_data)} systems")
+            filtered_data = filter_extreme_models(filtered_data, 0, percentile=95)
+            print(f"  - After filtering: {len(filtered_data)} systems")
 
-print("\n=== CO Collisions Analysis by RV ===")
-for rv in co_rv_values:
-    print(f"\n--- Checking RV = {rv} ---")
-    # Filter Extremes
-    rv_data = co_rv_datasets[rv]
-    print(f"  - Initial count: {len(rv_data)} systems")
-    rv_data_filtered_CO = filter_extreme_models(rv_data, 0, percentile=95)
-    print(f"  - After filtering: {len(rv_data_filtered_CO)} systems")\
+            # Plots
+            context = f"WD Mergers, {group_name} = {unique_value}"
+            plot_m1_m2_combined(filtered_data, title_context=context)
 
-    # Plots
-    context = f"CO Collisions, RV = {rv} pc"
-    plot_log_log_mass_combined(rv_data_filtered_CO, title_context=context)
+def co_plots(sorted_co_mergers):
+    # === Generic CO Plots ===
+    plot_log_log_mass_combined(sorted_co_mergers, title_context="CO collisions")
+    mergers_vs_time(sorted_co_mergers, title_context="CO collisions")
 
-# overlay mergers/collisions for each rv, N, and Z value.
+    # === Overlay Plots for rv, Z, and N ===
+    groups_to_plot = [(1, "rv(pc)"), (3, "Z"), (4, "N(x10^5)")]
+
+    for col_idx, group_name in groups_to_plot:
+        datasets, unique_values = separate_by_column(sorted_co_mergers, col_idx)
+        print(f"Found {len(unique_values)} unique {group_name} values in CO collisions: {unique_values}")
+
+        overlay_mergers_by_group(datasets, group_name=group_name, data_type="CO Collisions")
+        mergers_over_time_loglog_by_group(datasets, group_name=group_name, data_type="CO Collisions")
+
+        for unique_value in unique_values:
+            print(f"\n--- Checking {group_name} = {unique_value} ---")
+
+            # Filter Extremes
+            filtered_data = datasets[unique_value]
+            print(f"  - Initial count: {len(filtered_data)} systems")
+            filtered_data = filter_extreme_models(filtered_data, 0, percentile=95)
+            print(f"  - After filtering: {len(filtered_data)} systems")
+
+            # Plots
+            context = f"CO Collisions, {group_name} = {unique_value}"
+            plot_m1_m2_combined(filtered_data, title_context=context)
+
+if __name__ == "__main__":
+    setup_data()
