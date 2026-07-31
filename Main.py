@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import matplotlib.colors as mcolors
-import itertools
+import matplotlib.ticker as ticker
 
 def sort_binary_mass(data):
     """Rearranges each data entry such that mass 1 > mass 2
@@ -429,6 +429,84 @@ def mergers_over_time_loglog_by_group(datasets, group_name="RV", data_type="WD",
     plt.tight_layout()
     plt.show()
 
+def generate_mass_groups(data):
+    """Separates the data into 3 mass groups (All M_total, M_total > 1.4, M_total <= 1.4)
+
+    Arguments:
+    data - the raw data of Mergers or Collisions
+
+    Returns:
+    mass_datasets - dictionary of the datasets split by total mass values
+    """
+    m_total_data = data[:, 8] + data[:, 9]
+    # Create the dictionary of datasets
+    mass_datasets = {
+        "All": data,
+        "M < 1.4": data[m_total_data < 1.4],
+        "M >= 1.4": data[m_total_data >= 1.4]
+    }
+
+    return mass_datasets
+
+def overlay_mass_fractions(datasets, model_name="", bin_size=1000):
+    """Find the fraction of masses in each mass group that has merged at a given age (All M_total, M_total > 1.4, M_total <= 1.4)
+
+    Arguments:
+    datasets - the datasets of Mergers or Collisions separated by total mass values
+    model_name - the string name of the model
+    bin_size - the size of each bin in Myr
+    """
+    # Create overlay plot of merger/collision times for each group value
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    # Define colors for each group value
+    colors = plt.cm.tab10(np.linspace(0, 1, len(datasets)))
+
+    # Calculate global max across all datasets to figure out how far our bins must go
+    all_merge_times = []
+    for group_data in datasets.values():
+        if len(group_data) > 0:
+            all_merge_times.extend(group_data[:, 5])
+
+    global_max = np.max(all_merge_times)
+
+    # Create a bin every Gyr
+    bins = np.arange(0, global_max + bin_size, bin_size)
+
+    # Calculate the center of each bin for plotting the lines
+    bin_edges_right = bins[1:]
+
+    for (val, group_data), color in zip(sorted(datasets.items()), colors):
+        merge_times = group_data[:, 5]  # Column 5 is t_merger(Myr)
+        total_count = len(merge_times)
+
+        if total_count == 0:
+            continue
+
+        # Calculate the raw histogram counts per 1000 Myr bin
+        counts, _ = np.histogram(merge_times, bins=bins)
+
+        # Plot the percentages at the center of each bin
+        cumulative_counts = np.cumsum(counts)
+        percentages = (cumulative_counts / total_count) * 100
+
+        ax.plot(bin_edges_right, percentages, marker='o', linestyle='-',
+                label=f"{val} (n={total_count})", color=color, linewidth=2,
+                markersize=6, alpha=0.8)
+
+    ax.set_xlabel(f"Merger Times (Myr) - {int(bin_size)} Myr Bins")
+    ax.set_ylabel(f"Cumulative Percentage (%)")
+    ax.set_title(f"Percentage of Mergers/Collisions Over Time by {model_name}")
+    ax.legend()
+    ax.grid(axis='both', alpha=0.3)
+
+    ax.set_ylim(0, 105)
+
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(1000))
+    ax.xaxis.set_minor_locator(ticker.MultipleLocator(500))
+
+    plt.tight_layout()
+    plt.show()
 
 # === Main functions for starting plots ===
 def setup_data():
@@ -448,25 +526,29 @@ def setup_data():
     # [0:"modelID", 1:"rv(pc)", 2:"Rgc(kpc)", 3:"Z", 4:"N(x10^5)", 5:"t_merger(Myr)", ...]
 
     # plot WD data
-    wd_plots(sorted_wd)
+    plots(sorted_wd, "WD Mergers")
 
     # plot CO data
-    co_plots(sorted_co)
+    plots(sorted_co, "CO Collisions")
 
-def wd_plots(sorted_wd_mergers):
+def plots(data, model=""):
     # === Generic WD Plots ===
-    plot_m1_m2_combined(sorted_wd_mergers, title_context="WD Mergers")
-    mergers_vs_time(sorted_wd_mergers, title_context="WD Mergers")
+    #plot_m1_m2_combined(data, title_context=model)
+    #mergers_vs_time(data, title_context=model)
+
+    mass_datasets = generate_mass_groups(data)
+
+    overlay_mass_fractions(mass_datasets, model_name=model)
 
     # === Overlay Plots for rv, Z, and N ===
     groups_to_plot = [(1, "rv(pc)"), (3, "Z"), (4, "N(x10^5)")]
 
     for col_idx, group_name in groups_to_plot:
-        datasets, unique_values = separate_by_column(sorted_wd_mergers, col_idx)
-        print(f"\nFound {len(unique_values)} unique {group_name} values in WD mergers: {unique_values}")
+        datasets, unique_values = separate_by_column(data, col_idx)
+        print(f"\nFound {len(unique_values)} unique {group_name} values in" + model + f": {unique_values}")
 
-        overlay_mergers_by_group(datasets, group_name=group_name, data_type="WD Mergers")
-        mergers_over_time_loglog_by_group(datasets, group_name=group_name, data_type="WD Mergers")
+        overlay_mergers_by_group(datasets, group_name=group_name, data_type=model)
+        mergers_over_time_loglog_by_group(datasets, group_name=group_name, data_type=model)
 
         for unique_value in unique_values:
             print(f"\n--- Checking {group_name} = {unique_value} ---")
@@ -478,36 +560,8 @@ def wd_plots(sorted_wd_mergers):
             print(f"  - After filtering: {len(filtered_data)} systems")
 
             # Plots
-            context = f"WD Mergers, {group_name} = {unique_value}"
-            plot_m1_m2_combined(filtered_data, title_context=context)
-
-def co_plots(sorted_co_mergers):
-    # === Generic CO Plots ===
-    plot_log_log_mass_combined(sorted_co_mergers, title_context="CO collisions")
-    mergers_vs_time(sorted_co_mergers, title_context="CO collisions")
-
-    # === Overlay Plots for rv, Z, and N ===
-    groups_to_plot = [(1, "rv(pc)"), (3, "Z"), (4, "N(x10^5)")]
-
-    for col_idx, group_name in groups_to_plot:
-        datasets, unique_values = separate_by_column(sorted_co_mergers, col_idx)
-        print(f"Found {len(unique_values)} unique {group_name} values in CO collisions: {unique_values}")
-
-        overlay_mergers_by_group(datasets, group_name=group_name, data_type="CO Collisions")
-        mergers_over_time_loglog_by_group(datasets, group_name=group_name, data_type="CO Collisions")
-
-        for unique_value in unique_values:
-            print(f"\n--- Checking {group_name} = {unique_value} ---")
-
-            # Filter Extremes
-            filtered_data = datasets[unique_value]
-            print(f"  - Initial count: {len(filtered_data)} systems")
-            filtered_data = filter_extreme_models(filtered_data, 0, percentile=95)
-            print(f"  - After filtering: {len(filtered_data)} systems")
-
-            # Plots
-            context = f"CO Collisions, {group_name} = {unique_value}"
-            plot_m1_m2_combined(filtered_data, title_context=context)
+            context = model + f", {group_name} = {unique_value}"
+            #plot_m1_m2_combined(filtered_data, title_context=context)
 
 if __name__ == "__main__":
     setup_data()
