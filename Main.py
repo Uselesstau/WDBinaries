@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import matplotlib.colors as mcolors
 import matplotlib.ticker as ticker
+from astropy.cosmology import Planck18
+import astropy.units as u
 
 def sort_binary_mass(data):
     """Rearranges each data entry such that mass 1 > mass 2
@@ -246,7 +248,7 @@ def mergers_vs_time(data, title_context=""):
     plt.tight_layout()
     plt.show()
 
-def filter_k_values(data, k_min=10):
+def filter_k_values(data, k_min=10, k_max=12):
     """Removes k values smaller than k_min (k<10 = not a WD)
 
     Arguments:
@@ -258,7 +260,7 @@ def filter_k_values(data, k_min=10):
     """
     k1 = data[:, 10]
     k2 = data[:, 11]
-    mask = (k1 >= k_min) & (k2 >= k_min)
+    mask = (k1 >= k_min) & (k2 >= k_min) & (k1 < k_max) & (k2 < k_max)
     return data[mask]
 
 def separate_by_column(data, col_idx):
@@ -508,6 +510,80 @@ def overlay_mass_fractions(datasets, model_name="", bin_size=1000):
     plt.tight_layout()
     plt.show()
 
+def plot_merger_rate_density(datasets, group_name="", z_max=10.0, num_bins=50, cluster_density_mpc3=1.0):
+    """
+    Plots the merger rate density R(z) in Gpc^-3 yr^-1 vs redshift z.
+
+    Arguments:
+    datasets - dictionary of grouped datasets (e.g., separated by mass).
+    z_max - maximum redshift to plot (default 8.0).
+    num_bins - number of redshift bins.
+    cluster_density_mpc3 - Assumed density of clusters in the universe in Mpc^-3.
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Define colors for each group value
+    colors = plt.cm.tab10(np.linspace(0, 1, len(datasets)))
+
+    # Find the total number of unique models simulated across all groups
+    all_model_ids = set()
+    for data in datasets.values():
+        if len(data) > 0:
+            all_model_ids.update(data[:, 0])
+    total_models = len(all_model_ids) if len(all_model_ids) > 0 else 1
+
+    # Pre-compute a high-resolution grid for instant interpolation from time to z
+    z_grid = np.linspace(0, 100, 10000)
+    t_grid = Planck18.age(z_grid).to(u.Myr).value
+
+    # Reverse arrays because np.interp expects the t_grid to be strictly increasing
+    t_grid_rev = t_grid[::-1]
+    z_grid_rev = z_grid[::-1]
+
+    # Define the redshift bins
+    z_edges = np.linspace(0, z_max, num_bins + 1)
+    z_centers = (z_edges[:-1] + z_edges[1:]) / 2
+    t_edges_yr = Planck18.age(z_edges).to(u.yr).value
+    dt_yr = np.abs(t_edges_yr[1:] - t_edges_yr[:-1])
+
+    density_gpc3 = cluster_density_mpc3 * 1e9
+
+    for (label, group_data), color in zip(sorted(datasets.items()), colors):
+        if len(group_data) == 0:
+            continue
+
+        t_merger_myr = group_data[:, 5]
+
+        # Map the merger times to redshift
+        z_mergers = np.interp(t_merger_myr, t_grid_rev, z_grid_rev, right=0.0)
+        counts, _ = np.histogram(z_mergers, bins=z_edges)
+
+        # Calculate the Volumetric Rate Density R(z)
+        rate_density = (counts / total_models) / dt_yr * density_gpc3
+
+        # Mask out bins with 0 mergers
+        mask = rate_density > 0
+
+        # Plot
+        ax.plot(z_centers[mask], rate_density[mask], marker='', linestyle='-',
+                label=label, color=color, linewidth=2)
+
+    # === Formatting the plot to match the reference image ===
+    ax.set_yscale('log')
+    ax.set_xlim(0, z_max)
+
+    ax.set_xlabel("Redshift $z$", fontsize=14)
+    ax.set_ylabel(r"$\mathcal{R}(z) \, [\mathrm{Gpc}^{-3} \, \mathrm{yr}^{-1}]$", fontsize=14)
+    ax.set_title(f"Look back Time of Merger/Collision Distribution Density by {group_name}")
+
+    # Adding the clean major/minor gridlines from your reference image
+    ax.grid(True, which='major', linestyle='-', alpha=0.4)
+    ax.grid(True, which='minor', linestyle=':', alpha=0.3)
+
+    ax.legend(fontsize=11)
+    plt.tight_layout()
+    plt.show()
+
 # === Main functions for starting plots ===
 def setup_data():
     # Collisions of at least 1 compact object (WD, NS, or BH)
@@ -531,37 +607,80 @@ def setup_data():
     # plot CO data
     plots(sorted_co, "CO Collisions")
 
+    # Combine data
+    combined_data = np.concatenate([sorted_co, sorted_wd[:, :12]], axis=0)
+    plots(combined_data, "All Mergers")
+
 def plots(data, model=""):
     # === Generic WD Plots ===
     #plot_m1_m2_combined(data, title_context=model)
     #mergers_vs_time(data, title_context=model)
-
-    mass_datasets = generate_mass_groups(data)
-
-    overlay_mass_fractions(mass_datasets, model_name=model)
 
     # === Overlay Plots for rv, Z, and N ===
     groups_to_plot = [(1, "rv(pc)"), (3, "Z"), (4, "N(x10^5)")]
 
     for col_idx, group_name in groups_to_plot:
         datasets, unique_values = separate_by_column(data, col_idx)
-        print(f"\nFound {len(unique_values)} unique {group_name} values in" + model + f": {unique_values}")
+        print(f"\nFound {len(unique_values)} unique {group_name} values in " + model + f": {unique_values}")
 
-        overlay_mergers_by_group(datasets, group_name=group_name, data_type=model)
-        mergers_over_time_loglog_by_group(datasets, group_name=group_name, data_type=model)
-
+        # Filter Extremes
+        filtered_datasets = datasets
         for unique_value in unique_values:
             print(f"\n--- Checking {group_name} = {unique_value} ---")
 
-            # Filter Extremes
             filtered_data = datasets[unique_value]
             print(f"  - Initial count: {len(filtered_data)} systems")
             filtered_data = filter_extreme_models(filtered_data, 0, percentile=95)
             print(f"  - After filtering: {len(filtered_data)} systems")
+            filtered_datasets[unique_value] = filtered_data
 
-            # Plots
-            context = model + f", {group_name} = {unique_value}"
-            #plot_m1_m2_combined(filtered_data, title_context=context)
+            # Test z=0.03
+            if col_idx == 3 and unique_value == 0.03:
+                z_models, unique_model_values = separate_by_column(filtered_data, 0)
+
+                first_n_models = unique_model_values[:6]
+                z_models_filtered = {m_id: z_models[m_id] for m_id in first_n_models}
+
+                #overlay_mergers_by_group(z_models, group_name=f"z={unique_value}", data_type=model)
+                #overlay_mergers_by_group(z_models_filtered, group_name=f"z={unique_value}", data_type=model)
+
+        overlay_mergers_by_group(filtered_datasets, group_name=group_name, data_type=model)
+        mergers_over_time_loglog_by_group(filtered_datasets, group_name=group_name, data_type=model)
+
+    mass_datasets = generate_mass_groups(data)
+
+    overlay_mass_fractions(mass_datasets, model_name=model)
+
+    # === Test Model with r=0.5, z=0.3, N=8.0 ===
+    mask_rv = np.isclose(data[:, 1], 0.5)
+    mask_z = np.isclose(data[:, 3], 0.3)
+    mask_n = np.isclose(data[:, 4], 8.0)
+
+    # Combine conditions
+    specific_model_mask = mask_rv & mask_z & mask_n
+
+    # Extract the filtered data
+    specific_data = data[specific_model_mask]
+
+    print(f"\n--- Testing Specific Model (rv=0.5, Z=0.3, N=8) ---")
+    print(f"Found {len(specific_data)} total mergers for these parameters.")
+
+    if len(specific_data) > 0:
+        # Plot the volumetric rate density
+        specific_mass_datasets = generate_mass_groups(specific_data)
+        plot_merger_rate_density(
+            specific_mass_datasets,
+            group_name="Model where (rv=0.5, Z=0.3, N=8)",
+            z_max=10.0,
+            num_bins=50,
+            cluster_density_mpc3=1.0
+        )
+    else:
+        print("No data found for this specific combination of parameters.")
+
+    plot_merger_rate_density(mass_datasets, group_name=model, z_max=10.0, num_bins=50,
+                             cluster_density_mpc3=1.0)
+
 
 if __name__ == "__main__":
     setup_data()
