@@ -5,6 +5,9 @@ import matplotlib.colors as mcolors
 import matplotlib.ticker as ticker
 from astropy.cosmology import Planck18
 import astropy.units as u
+import ClusterWeightCalculator as cwc
+from ClusterWeightCalculator import inspect_model_weights
+
 
 def sort_binary_mass(data):
     """Rearranges each data entry such that mass 1 > mass 2
@@ -322,7 +325,7 @@ def filter_extreme_models(data, model_col_idx=0, percentile=95):
 
     return filtered_data
 
-def remove_specific_model_group(data, target_rv=0.5, target_z=0.03, target_n=8.0):
+def remove_specific_model_group(data, target_rv=0.5, target_z=0.03, target_n=4.0):
     """Removes the models with specific values due to their extreme results
 
     Arguments:
@@ -572,9 +575,12 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50, cl
     total_models = len(all_model_ids) if len(all_model_ids) > 0 else 1
 
     # Provide a birth time for the cluster.
-    model_birth_times = {}
-    for model_id in unique_models:
-        model_birth_times[model_id] = np.random.uniform(2000, 3000)
+    combined_data = np.vstack(list(datasets.values()))
+
+    # Call our new script to get the dictionaries
+    model_stats = cwc.assign_model_weights_and_times(combined_data)
+
+    inspect_model_weights(model_stats)
 
     # Pre-compute a high-resolution grid for instant interpolation from time to z
     z_grid = np.linspace(0, 100, 10000)
@@ -594,6 +600,9 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50, cl
 
     density_gpc3 = cluster_density_mpc3 * 1e9
 
+    # Get the sum of all independent weights across ALL models in your dataset
+    total_grid_weight = sum([info['weight'] for info in model_stats.values()])
+
     for (label, group_data), color in zip(sorted(datasets.items()), colors):
         if len(group_data) == 0:
             continue
@@ -602,17 +611,20 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50, cl
         t_merger_myr = group_data[:, 5]
 
         # Retrieve the assigned birth time for every model in this group
-        birth_times = np.array([model_birth_times[mid] for mid in model_ids])
+        birth_times = np.array([model_stats[mid]['birth_time_myr'] for mid in model_ids])
+        model_weights = np.array([model_stats[mid]['weight'] for mid in model_ids])
 
-        # Absolute cosmic time = birth time + delay time
+        # Absolute Cosmic Time = Birth Time + Delay Time
         t_merger_cosmic_myr = t_merger_myr + birth_times
 
-        # Map the merger times to redshift
+        # Map the absolute cosmic merger times to redshift
         z_mergers = np.interp(t_merger_cosmic_myr, t_grid_rev, z_grid_rev, right=0.0)
-        counts, _ = np.histogram(z_mergers, bins=z_edges)
+
+        # Pass the model weights into the histogram
+        counts, _ = np.histogram(z_mergers, bins=z_edges, weights=model_weights)
 
         # Calculate the Volumetric Rate Density R(z)
-        rate_density = (counts / total_models) / dt_yr * density_gpc3
+        rate_density = (counts / total_grid_weight) / dt_yr * density_gpc3
 
         # Mask out bins with 0 mergers
         mask = rate_density > 0
@@ -624,7 +636,7 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50, cl
         # Plot the Individual Mergers as ticks on the top axis (Rug Plot)
         # transform=ax.get_xaxis_transform() locks the y-coordinate to the axis fraction (1.0 = exactly the top spine)
         ax.plot(z_mergers, np.full_like(z_mergers, 1.0), marker='|', color=color,
-                linestyle='None', alpha=0.2, markersize=8,
+                linestyle='None', alpha=0.4, markersize=8,
                 transform=ax.get_xaxis_transform(), clip_on=False)
 
     # === Formatting the plot to match the reference image ===
@@ -711,12 +723,12 @@ def plots(data, model=""):
             print(f"  - After filtering: {len(filtered_data)} systems")
             filtered_datasets[unique_value] = filtered_data
 
-        overlay_mergers_by_group(filtered_datasets, group_name=group_name, data_type=model)
-        mergers_over_time_loglog_by_group(filtered_datasets, group_name=group_name, data_type=model)
+        #!overlay_mergers_by_group(filtered_datasets, group_name=group_name, data_type=model)
+        #!mergers_over_time_loglog_by_group(filtered_datasets, group_name=group_name, data_type=model)
 
     mass_datasets = generate_mass_groups(data)
 
-    overlay_mass_fractions(mass_datasets, model_name=model)
+    #!overlay_mass_fractions(mass_datasets, model_name=model)
 
     # === Test Model with r=0.5, z=0.3, N=8.0 ===
     mask_rv = np.isclose(data[:, 1], 0.5)
@@ -738,16 +750,15 @@ def plots(data, model=""):
         plot_merger_rate_density(
             specific_mass_datasets,
             group_name="Model where (rv=0.5, Z=0.3, N=8)",
-            z_max=4.0,
+            z_max=2.0,
             num_bins=50,
             cluster_density_mpc3=1.0
         )
     else:
         print("No data found for this specific combination of parameters.")
 
-    plot_merger_rate_density(mass_datasets, group_name=model, z_max=4.0, num_bins=50,
+    plot_merger_rate_density(mass_datasets, group_name=model, z_max=2.0, num_bins=50,
                              cluster_density_mpc3=1.0)
 
 
-if __name__ == "__main__":
-    setup_data()
+setup_data()
