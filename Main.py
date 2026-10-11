@@ -7,6 +7,8 @@ from astropy.cosmology import Planck18
 import astropy.units as u
 import ClusterWeightCalculator as cwc
 from ClusterWeightCalculator import inspect_model_weights
+import MLAnalysis as ml
+from scipy.ndimage import gaussian_filter1d
 
 
 def sort_binary_mass(data):
@@ -231,39 +233,101 @@ def plot_log_log_mass_combined(data, title_context=""):
     plt.tight_layout()
     plt.show()
 
-def mergers_vs_time(data, title_context=""):
-    """Plots the evolution of the number of mergers over the time (bins=20)
+
+def mergers_vs_time_by_model(data, title_context=""):
+    """Plots the evolution of the number of mergers over time (bins=20).
+    Produces two figures:
+    1. Every individual model overlaid.
+    2. The Top 5 models with the highest merger counts.
 
     Arguments:
     data - the raw data of Mergers or Collisions
     title_context - the title of the plot
     """
-    merge_time = data[:, 5]
+    if len(data) == 0:
+        print("    - No data to plot.")
+        return
 
-    fig, ax = plt.subplots()
-    ax.hist(merge_time, bins=20)
-    
-    title = f"Number of Mergers Over Time{f' - {title_context}' if title_context else ''}"
-    ax.title.set_text(title)
-    ax.set_xlabel("Merger Times (Myr)")
-    ax.set_ylabel("Count")
+    model_ids = data[:, 0]
+    merge_times_all = data[:, 5]
 
-    plt.tight_layout()
+    # Get unique models and count their total rows
+    unique_models, counts = np.unique(model_ids, return_counts=True)
+
+    # Sort models by count in descending order to find the top 5
+    sorted_indices = np.argsort(counts)[::-1]
+    sorted_models = unique_models[sorted_indices]
+    top_5_models = sorted_models[:5]
+    top_5_counts = counts[sorted_indices][:5]
+
+    # Calculate global bins so both plots share the exact same x-axis
+    global_min = np.min(merge_times_all)
+    global_max = np.max(merge_times_all)
+    bins = np.linspace(global_min, global_max, 21)
+    bin_centers = (bins[:-1] + bins[1:]) / 2
+
+    # === Plot All Models ===
+    fig1, ax1 = plt.subplots(figsize=(12, 7))
+    colors_all = plt.cm.viridis(np.linspace(0, 1, len(unique_models)))
+
+    for mid, color in zip(unique_models, colors_all):
+        merge_times = data[model_ids == mid][:, 5]
+        counts_bin, _ = np.histogram(merge_times, bins=bins)
+
+        ax1.plot(bin_centers, counts_bin, marker='', linestyle='-',
+                 color=color, alpha=0.3, linewidth=1.5)
+
+    title1 = f"Mergers Over Time (All Models){f' - {title_context}' if title_context else ''}"
+    ax1.set_title(title1, fontsize=14)
+    ax1.set_xlabel("Merger Times (Myr)", fontsize=12)
+    ax1.set_ylabel("Count per Bin", fontsize=12)
+    ax1.grid(axis='both', alpha=0.3)
+
+    # Box noting how many models are plotted
+    ax1.text(1.02, 0.98, f"{len(unique_models)} Models Plotted\n(Alpha=0.3)",
+             transform=ax1.transAxes, fontsize=12, verticalalignment='top',
+             bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8))
+    fig1.tight_layout()
+
+    # === Plot Top 5 Models ===
+    fig2, ax2 = plt.subplots(figsize=(12, 7))
+    colors_top5 = plt.cm.tab10(np.linspace(0, 1, len(top_5_models)))
+
+    for mid, color, total_count in zip(top_5_models, colors_top5, top_5_counts):
+        merge_times = data[model_ids == mid][:, 5]
+        counts_bin, _ = np.histogram(merge_times, bins=bins)
+
+        # Plot with markers and bold lines for high visibility
+        ax2.plot(bin_centers, counts_bin, marker='o', linestyle='-',
+                 color=color, linewidth=2.5, markersize=6, alpha=0.9,
+                 label=f"Model {mid:.0f} (Total: {total_count})")
+
+    title2 = f"Top 5 Models by Merger Count{f' - {title_context}' if title_context else ''}"
+    ax2.set_title(title2, fontsize=14)
+    ax2.set_xlabel("Merger Times (Myr)", fontsize=12)
+    ax2.set_ylabel("Count per Bin", fontsize=12)
+    ax2.grid(axis='both', alpha=0.3)
+    ax2.legend(fontsize=11)
+
+    fig2.tight_layout()
+
+    # Show both figures
     plt.show()
 
 def filter_k_values(data, k_min=10, k_max=12):
-    """Removes k values smaller than k_min (k<10 = not a WD)
+    """Removes k values smaller than k_min (k<10 = not a WD) and values greater than k_max (k>12 = not a WD) from the data
 
     Arguments:
     data - the raw data of Mergers or Collisions
     k_min - the minimum k value
+    k_max - the maximum k value
 
     Returns:
     Masked data with k values smaller than k_min (k<10 = not a WD)
     """
     k1 = data[:, 10]
     k2 = data[:, 11]
-    mask = (k1 >= k_min) & (k2 >= k_min) & (k1 < k_max) & (k2 < k_max)
+    mask = (k1 >= k_min) & (k2 >= k_min) & (k1 <= k_max) & (k2 <= k_max)
     return data[mask]
 
 def separate_by_column(data, col_idx):
@@ -325,14 +389,12 @@ def filter_extreme_models(data, model_col_idx=0, percentile=95):
 
     return filtered_data
 
-def remove_specific_model_group(data, target_rv=0.5, target_z=0.03, target_n=4.0):
+def remove_specific_model_group(data, target_model_ids):
     """Removes the models with specific values due to their extreme results
 
     Arguments:
     data - the raw data of Mergers or Collisions
-    target_rv - the model(s) with this rv
-    target_z - the model(s) with this z
-    target_n - the model(s) with this n
+    target_model_id - the ID of the target model
 
     Returns:
     filtered_data - the filtered data
@@ -340,24 +402,17 @@ def remove_specific_model_group(data, target_rv=0.5, target_z=0.03, target_n=4.0
     if len(data) == 0:
         return data
 
-    # 1. Create conditions for each parameter
-    mask_rv = np.isclose(data[:, 1], target_rv)
-    mask_z = np.isclose(data[:, 3], target_z)
-    mask_n = np.isclose(data[:, 4], target_n)
+    # Create mask for each id
+    mask_id = np.isin(data[:, 0], target_model_ids)
 
-    # 2. Combine conditions to find the exact rows to remove
-    # (True where ALL three parameters match)
-    mask_to_remove = mask_rv & mask_z & mask_n
-
-    # 3. Invert the mask to KEEP everything else
-    # The ~ operator flips True to False and False to True
-    mask_to_keep = ~mask_to_remove
+    # Invert the mask to KEEP everything else
+    mask_to_keep = ~mask_id
 
     filtered_data = data[mask_to_keep]
 
     # Calculate and print stats
     removed_count = len(data) - len(filtered_data)
-    print(f"    - Excluded {removed_count} mergers matching rv={target_rv}, Z={target_z}, N={target_n}")
+    print(f"    - Excluded {removed_count} mergers matching model ids={target_model_ids}")
 
     return filtered_data
 
@@ -574,12 +629,11 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50, cl
     unique_models = list(all_model_ids)
     total_models = len(all_model_ids) if len(all_model_ids) > 0 else 1
 
-    # Provide a birth time for the cluster.
+    # Combine datasets into 1 set
     combined_data = np.vstack(list(datasets.values()))
 
-    # Call our new script to get the dictionaries
+    # Call Cluster Weight Calculator across all the datasets (normalized all together)
     model_stats = cwc.assign_model_weights_and_times(combined_data)
-
     inspect_model_weights(model_stats)
 
     # Pre-compute a high-resolution grid for instant interpolation from time to z
@@ -600,7 +654,7 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50, cl
 
     density_gpc3 = cluster_density_mpc3 * 1e9
 
-    # Get the sum of all independent weights across ALL models in your dataset
+    # Get the sum of all independent weights across ALL models in dataset
     total_grid_weight = sum([info['weight'] for info in model_stats.values()])
 
     for (label, group_data), color in zip(sorted(datasets.items()), colors):
@@ -613,6 +667,8 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50, cl
         # Retrieve the assigned birth time for every model in this group
         birth_times = np.array([model_stats[mid]['birth_time_myr'] for mid in model_ids])
         model_weights = np.array([model_stats[mid]['weight'] for mid in model_ids])
+
+        # === Raw N-Body Data ===
 
         # Absolute Cosmic Time = Birth Time + Delay Time
         t_merger_cosmic_myr = t_merger_myr + birth_times
@@ -631,13 +687,22 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50, cl
 
         # Plot
         ax.plot(z_centers[mask], rate_density[mask], marker='', linestyle='-',
-                label=label, color=color, linewidth=2)
+                label=label, color=color, linewidth=2, alpha=0.25)
 
         # Plot the Individual Mergers as ticks on the top axis (Rug Plot)
         # transform=ax.get_xaxis_transform() locks the y-coordinate to the axis fraction (1.0 = exactly the top spine)
         ax.plot(z_mergers, np.full_like(z_mergers, 1.0), marker='|', color=color,
                 linestyle='None', alpha=0.4, markersize=8,
                 transform=ax.get_xaxis_transform(), clip_on=False)
+
+        # === Gaussian Smoothing (Overlay) ===
+        smooth_rate = gaussian_filter1d(rate_density, sigma=3)
+
+        # Only plot where the smoothed line is above 0
+        mask_smooth = smooth_rate > 0
+
+        ax.plot(z_centers[mask_smooth], smooth_rate[mask_smooth], marker='', linestyle='--',
+                label=f"{label} (Smoothed)", color=color, linewidth=2.5)
 
     # === Formatting the plot to match the reference image ===
     ax.set_yscale('log')
@@ -679,24 +744,37 @@ def setup_data():
 
     # Filter to keep only systems with both k >= 10 (WD, NS, BH, or combinations)
     sorted_co = filter_k_values(sorted_co)
-    sorted_co = remove_specific_model_group(sorted_co)
-    sorted_co = remove_specific_model_group(sorted_co, target_rv=1.0)
+    # sorted_co = remove_specific_model_group(sorted_co)
+    # sorted_co = remove_specific_model_group(sorted_co, target_rv=1.0)
     sorted_wd = filter_k_values(sorted_wd)
-    sorted_wd = remove_specific_model_group(sorted_wd)
-    sorted_wd = remove_specific_model_group(sorted_wd, target_rv=1.0)
+    # sorted_wd = remove_specific_model_group(sorted_wd)
+    # sorted_wd = remove_specific_model_group(sorted_wd, target_rv=1.0)
 
     # Columns reference:
     # [0:"modelID", 1:"rv(pc)", 2:"Rgc(kpc)", 3:"Z", 4:"N(x10^5)", 5:"t_merger(Myr)", ...]
 
-    # plot WD data
-    plots(sorted_wd, "WD Mergers")
-
-    # plot CO data
-    plots(sorted_co, "CO Collisions")
-
     # Combine data
     combined_data = np.concatenate([sorted_co, sorted_wd[:, :12]], axis=0)
-    plots(combined_data, "All Mergers")
+
+    # Find Anomalies with Isolation Forest
+    clean_data, flagged_models = ml.find_anomalous_models(combined_data)
+    sorted_co = remove_specific_model_group(sorted_co, flagged_models)
+    sorted_wd = remove_specific_model_group(sorted_wd, flagged_models)
+
+    # Check Anomalies
+    mergers_vs_time_by_model(combined_data)
+
+    # Compare WD, CO, and combined data
+    datasets = {
+        "CO Data": sorted_co,
+        "WD Data": sorted_wd[:,:12],
+        "Combined Data": clean_data,
+    }
+    plot_merger_rate_density(datasets, group_name="WD, CO, and combined data", z_max=2.0, num_bins=50,
+                             cluster_density_mpc3=1.0)
+
+    # Plot the data
+    plots(clean_data, "all Mergers")
 
     print("Finished plotting all data.")
 
@@ -708,20 +786,20 @@ def plots(data, model=""):
     # === Overlay Plots for rv, Z, and N ===
     groups_to_plot = [(1, "rv(pc)"), (3, "Z"), (4, "N(x10^5)")]
 
-    for col_idx, group_name in groups_to_plot:
-        datasets, unique_values = separate_by_column(data, col_idx)
-        print(f"\nFound {len(unique_values)} unique {group_name} values in " + model + f": {unique_values}")
+    # for col_idx, group_name in groups_to_plot:
+        # datasets, unique_values = separate_by_column(data, col_idx)
+        # print(f"\nFound {len(unique_values)} unique {group_name} values in " + model + f": {unique_values}")
 
         # Filter Extremes
-        filtered_datasets = datasets
-        for unique_value in unique_values:
-            print(f"\n--- Checking {group_name} = {unique_value} ---")
+        # filtered_datasets = datasets
+        # for unique_value in unique_values:
+            # print(f"\n--- Checking {group_name} = {unique_value} ---")
 
-            filtered_data = datasets[unique_value]
-            print(f"  - Initial count: {len(filtered_data)} systems")
-            filtered_data = filter_extreme_models(filtered_data, 0, percentile=95)
-            print(f"  - After filtering: {len(filtered_data)} systems")
-            filtered_datasets[unique_value] = filtered_data
+            # filtered_data = datasets[unique_value]
+            # print(f"  - Initial count: {len(filtered_data)} systems")
+            # filtered_data = filter_extreme_models(filtered_data, 0, percentile=95)
+            # print(f"  - After filtering: {len(filtered_data)} systems")
+            # filtered_datasets[unique_value] = filtered_data
 
         #!overlay_mergers_by_group(filtered_datasets, group_name=group_name, data_type=model)
         #!mergers_over_time_loglog_by_group(filtered_datasets, group_name=group_name, data_type=model)
@@ -729,33 +807,6 @@ def plots(data, model=""):
     mass_datasets = generate_mass_groups(data)
 
     #!overlay_mass_fractions(mass_datasets, model_name=model)
-
-    # === Test Model with r=0.5, z=0.3, N=8.0 ===
-    mask_rv = np.isclose(data[:, 1], 0.5)
-    mask_z = np.isclose(data[:, 3], 0.3)
-    mask_n = np.isclose(data[:, 4], 8.0)
-
-    # Combine conditions
-    specific_model_mask = mask_rv & mask_z & mask_n
-
-    # Extract the filtered data
-    specific_data = data[specific_model_mask]
-
-    print(f"\n--- Testing Specific Model (rv=0.5, Z=0.3, N=8) ---")
-    print(f"Found {len(specific_data)} total mergers for these parameters.")
-
-    if len(specific_data) > 0:
-        # Plot the volumetric rate density
-        specific_mass_datasets = generate_mass_groups(specific_data)
-        plot_merger_rate_density(
-            specific_mass_datasets,
-            group_name="Model where (rv=0.5, Z=0.3, N=8)",
-            z_max=2.0,
-            num_bins=50,
-            cluster_density_mpc3=1.0
-        )
-    else:
-        print("No data found for this specific combination of parameters.")
 
     plot_merger_rate_density(mass_datasets, group_name=model, z_max=2.0, num_bins=50,
                              cluster_density_mpc3=1.0)

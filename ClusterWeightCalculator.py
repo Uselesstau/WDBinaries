@@ -28,7 +28,8 @@ class ClusterWeightCalculator:
     def _formation_rate_density(self, z):
         z_p, a_z, b_z = 2.2, 2.6, 3.6
         term = (1 + z) / (1 + z_p)
-        rate = (term ** a_z) / (1 + term ** (a_z + b_z))
+        f_cl = 0.28
+        rate = (f_cl * term ** a_z) / (1 + term ** (a_z + b_z))
         return rate
 
     def _metallicity_weight(self, Z, z):
@@ -63,7 +64,7 @@ class ClusterWeightCalculator:
         return best_z, birth_time_myr, independent_weight
 
 
-def inspect_model_weights(model_stats, top_n=15):
+def inspect_model_weights(model_stats, top_n=22):
     """
     Prints a formatted table of the calculated weights and birth times for validation.
     Sorts the models from the highest weight (most realistic) to the lowest weight.
