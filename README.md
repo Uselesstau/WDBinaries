@@ -1,0 +1,1 @@
+This is a research project focused on analyzing data related to binary star mergers and collisions of various star cluster systems. At the moment, a lot of work is still required and lots of progress is needed
