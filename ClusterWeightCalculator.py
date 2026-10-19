@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.optimize import minimize_scalar
+from scipy.integrate import quad
 from astropy.cosmology import Planck18
 import astropy.units as u
 
@@ -28,8 +29,7 @@ class ClusterWeightCalculator:
     def _formation_rate_density(self, z):
         z_p, a_z, b_z = 2.2, 2.6, 3.6
         term = (1 + z) / (1 + z_p)
-        f_cl = 0.28
-        rate = (f_cl * term ** a_z) / (1 + term ** (a_z + b_z))
+        rate = (term ** a_z) / (1 + term ** (a_z + b_z))
         return rate
 
     def _metallicity_weight(self, Z, z):
@@ -39,27 +39,82 @@ class ClusterWeightCalculator:
         weight = np.exp(- ((zeta - mu_zeta) ** 2) / (2 * sigma_zeta ** 2))
         return weight
 
-    def calculate_model(self, rv, Z, N):
+    def _k_gw_correction(self, Z, rv):
+        """
+        Calculates the correction factor K_GW(Z) to account for clusters
+        that evaporate prior to the present day (Eq 17).
+        """
+        Delta = 10 ** 5.33
+        M_min = 10 ** 4
+        M_max = 10 ** 8
+
+        match Z:
+            case 0.03:
+                A = 3.6
+                alpha = 2
+                beta = 2.2
+            case 0.3:
+                A = 1.3
+                alpha = 1.9
+                beta = 2.7
+            case 1.0:
+                A = 1.3
+                alpha = 2.4
+                beta = 2.1
+
+        alpha = 1.0
+        beta = 1.0
+
+        def phi_m0(m):
+            # Eq 9: Birth mass function
+            return (m ** -2) * np.exp(-m / self.m_star)
+
+        def phi_m(m_val):
+            # Eq 16: Present-day mass function
+            return (m_val + Delta) ** -2 * np.exp(-(m_val + Delta) / (self.m_star / 2))
+
+        def mass_dependency(m):
+            # From Eq 4 & 5: (M_0 / 10^6 M_sun)^alpha
+            return A * (m / 1e6) ** alpha * rv ** beta
+
+        def num_integrand(m):
+            return phi_m0(m) * mass_dependency(m)
+
+        def den_integrand(m):
+            return phi_m(m / 2.0) * mass_dependency(m)
+
+        # Integrate over the mass limits (10^4 to 10^8)
+        num, _ = quad(num_integrand, M_min, M_max)
+        den, _ = quad(den_integrand, M_min, M_max)
+
+        return num / den
+
+    def calculate_model(self, rv, Z, N, avg_GC_mass):
         """
         Calculates the optimal birth redshift and independent statistical weight.
         """
-
         def neg_prob(z):
             if z < 0 or z > 20:
                 return 0.0
             return -(self._formation_rate_density(z) * self._metallicity_weight(Z, z))
 
         res = minimize_scalar(neg_prob, bounds=(0, 20), method='bounded')
+
         best_z = res.x
         birth_time_myr = Planck18.age(best_z).to(u.Myr).value
 
         # Calculate the independent combined weight
         w_mass = self._mass_weight(N)
         w_radius = self._radius_weight(rv)
+        w_correction = self._k_gw_correction(Z, rv)
         w_z = -res.fun
 
+        # Verify this value matches rate*Avg M_GC = f_cl = 0.258
+        phi = 0.01 * ((1 + res.x) ** 2.6) / (1 + ((1 + res.x) / 3.2) ** 6.2)
+        #print(self._formation_rate_density(res.x) * avg_GC_mass * w_mass * 100 / phi)
+
         # This is the standalone weight for this specific configuration
-        independent_weight = w_mass * w_radius * w_z
+        independent_weight = w_mass * w_radius * w_z * w_correction
 
         return best_z, birth_time_myr, independent_weight
 
@@ -103,18 +158,24 @@ def assign_model_weights_and_times(data):
     """
     print("\nCalculating cosmological birth times and independent weights for models...")
 
+    unique_mids = np.unique(data[:, 0])
+    GC_avg_masses = {}
+    for mid in unique_mids:
+        model_data = data[data[:, 0] == mid]
+        GC_avg_masses[mid] = {np.sum((model_data[:, 8]) + model_data[:, 9]) / len(model_data[:, 8])}
+
     unique_models = {}
     for row in data:
         mid = row[0]
         if mid not in unique_models:
-            unique_models[mid] = {'rv': row[1], 'Z': row[3], 'N': row[4]}
+            unique_models[mid] = {'rv': row[1], 'Z': row[3], 'N': row[4], 'Mean M': list(GC_avg_masses[mid])[0]}
 
     calculator = ClusterWeightCalculator()
     model_results = {}
 
     for mid, props in unique_models.items():
         best_z, birth_myr, indep_weight = calculator.calculate_model(
-            props['rv'], props['Z'], props['N']
+            props['rv'], props['Z'], props['N'], props['Mean M']
         )
         model_results[mid] = {
             'rv': props['rv'],

@@ -6,7 +6,6 @@ import matplotlib.ticker as ticker
 from astropy.cosmology import Planck18
 import astropy.units as u
 import ClusterWeightCalculator as cwc
-from ClusterWeightCalculator import inspect_model_weights
 import MLAnalysis as ml
 from scipy.ndimage import gaussian_filter1d
 
@@ -233,86 +232,127 @@ def plot_log_log_mass_combined(data, title_context=""):
     plt.tight_layout()
     plt.show()
 
-
-def mergers_vs_time_by_model(data, title_context=""):
-    """Plots the evolution of the number of mergers over time (bins=20).
-    Produces two figures:
-    1. Every individual model overlaid.
-    2. The Top 5 models with the highest merger counts.
+def mergers_vs_time_by_model(data, title_context="", max_figs=None, target_models=None, model_stats=None):
+    """
+    Plots a global overview of all models, then generates an independent 2-pane figure
+    for individual models showing their isolated behavior and their overlaid context.
 
     Arguments:
     data - the raw data of Mergers or Collisions
     title_context - the title of the plot
+    max_figs - safety limit for the number of individual figures to generate (prevents crashes).
+               Set to "None" to plot ALL models.
+    target_models - specific list of model IDs to plot (e.g., the anomalies array).
+    model_stats - dictionary containing calculated birth times and weights (optional).
     """
     if len(data) == 0:
         print("    - No data to plot.")
         return
 
     model_ids = data[:, 0]
+    unique_models = np.unique(model_ids)
+
+    # Use target_models if provided, otherwise use all unique models
+    if target_models is not None:
+        models_to_plot = target_models
+    else:
+        models_to_plot = unique_models
+
     merge_times_all = data[:, 5]
 
-    # Get unique models and count their total rows
-    unique_models, counts = np.unique(model_ids, return_counts=True)
-
-    # Sort models by count in descending order to find the top 5
-    sorted_indices = np.argsort(counts)[::-1]
-    sorted_models = unique_models[sorted_indices]
-    top_5_models = sorted_models[:5]
-    top_5_counts = counts[sorted_indices][:5]
-
-    # Calculate global bins so both plots share the exact same x-axis
+    # Calculate global bins so all plots share the exact same x-axis
     global_min = np.min(merge_times_all)
     global_max = np.max(merge_times_all)
     bins = np.linspace(global_min, global_max, 21)
     bin_centers = (bins[:-1] + bins[1:]) / 2
 
-    # === Plot All Models ===
-    fig1, ax1 = plt.subplots(figsize=(12, 7))
+    # Pre-compute histograms and extract properties for ALL models for efficiency
+    model_data_dict = {}
+    for mid in unique_models:
+        m_data = data[model_ids == mid]
+        counts, _ = np.histogram(m_data[:, 5], bins=bins)
+
+        # Grab properties from the first row of this model
+        model_data_dict[mid] = {
+            'counts': counts,
+            'rv': m_data[0, 1],
+            'Z': m_data[0, 3],
+            'N': m_data[0, 4]
+        }
+
+    # --- All model count ---
+    fig_main, ax_main = plt.subplots(figsize=(12, 7))
     colors_all = plt.cm.viridis(np.linspace(0, 1, len(unique_models)))
 
-    for mid, color in zip(unique_models, colors_all):
-        merge_times = data[model_ids == mid][:, 5]
-        counts_bin, _ = np.histogram(merge_times, bins=bins)
+    for (mid, m_info), color in zip(model_data_dict.items(), colors_all):
+        ax_main.plot(bin_centers, m_info['counts'], marker='', linestyle='-',
+                     color=color, alpha=0.3, linewidth=1.5)
 
-        ax1.plot(bin_centers, counts_bin, marker='', linestyle='-',
-                 color=color, alpha=0.3, linewidth=1.5)
-
-    title1 = f"Mergers Over Time (All Models){f' - {title_context}' if title_context else ''}"
-    ax1.set_title(title1, fontsize=14)
-    ax1.set_xlabel("Merger Times (Myr)", fontsize=12)
-    ax1.set_ylabel("Count per Bin", fontsize=12)
-    ax1.grid(axis='both', alpha=0.3)
-
-    # Box noting how many models are plotted
-    ax1.text(1.02, 0.98, f"{len(unique_models)} Models Plotted\n(Alpha=0.3)",
-             transform=ax1.transAxes, fontsize=12, verticalalignment='top',
-             bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8))
-    fig1.tight_layout()
-
-    # === Plot Top 5 Models ===
-    fig2, ax2 = plt.subplots(figsize=(12, 7))
-    colors_top5 = plt.cm.tab10(np.linspace(0, 1, len(top_5_models)))
-
-    for mid, color, total_count in zip(top_5_models, colors_top5, top_5_counts):
-        merge_times = data[model_ids == mid][:, 5]
-        counts_bin, _ = np.histogram(merge_times, bins=bins)
-
-        # Plot with markers and bold lines for high visibility
-        ax2.plot(bin_centers, counts_bin, marker='o', linestyle='-',
-                 color=color, linewidth=2.5, markersize=6, alpha=0.9,
-                 label=f"Model {mid:.0f} (Total: {total_count})")
-
-    title2 = f"Top 5 Models by Merger Count{f' - {title_context}' if title_context else ''}"
-    ax2.set_title(title2, fontsize=14)
-    ax2.set_xlabel("Merger Times (Myr)", fontsize=12)
-    ax2.set_ylabel("Count per Bin", fontsize=12)
-    ax2.grid(axis='both', alpha=0.3)
-    ax2.legend(fontsize=11)
-
-    fig2.tight_layout()
-
-    # Show both figures
+    ax_main.set_title(
+        f"Mergers Over Time (All {len(unique_models)} Models){f' - {title_context}' if title_context else ''}",
+        fontsize=14)
+    ax_main.set_xlabel("Merger Times (Myr)", fontsize=12)
+    ax_main.set_ylabel("Count per Bin", fontsize=12)
+    ax_main.grid(axis='both', alpha=0.3)
+    plt.tight_layout()
     plt.show()
+
+    # --- Individual model inspection ---
+    # Apply safety limit to avoid crashing Matplotlib memory
+    if max_figs is not None and len(models_to_plot) > max_figs:
+        print(f"\n[Note] Limiting individual plots to {max_figs} to prevent IDE crashes.")
+        print("Pass `max_figs=None` to plot all of them, or pass a specific list to `target_models`.\n")
+        models_to_plot = models_to_plot[:max_figs]
+
+    for mid in models_to_plot:
+        # Failsafe if a target model isn't in the dataset
+        if mid not in model_data_dict:
+            continue
+
+        m_info = model_data_dict[mid]
+
+        # Fetch birth time and weight strings if model_stats was provided
+        xtra_info_str = ""
+        if model_stats is not None and mid in model_stats:
+            birth_myr = model_stats[mid]['birth_time_myr']
+            birth_z = model_stats[mid]['birth_z']
+            weight = model_stats[mid]['weight']
+
+            # Formatted with .2e for scientific notation
+            xtra_info_str = f"\nBirth: {birth_myr:.1f} Myr (z={birth_z:.2f})  |  Weight: {weight:.2e}"
+
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+
+        # Format the title with the physical properties
+        fig.suptitle(
+            f"Model ID: {mid:.0f}  |  $r_v$ = {m_info['rv']} pc  |  $Z$ = {m_info['Z']}  |  $N$ = {m_info['N']} $\\times"
+            f" 10^5${xtra_info_str}",
+            fontsize=16, fontweight='bold')
+
+        # Isolated View
+        ax1.plot(bin_centers, m_info['counts'], marker='o', linestyle='-', color='tab:red', linewidth=2.5)
+        ax1.set_title("Isolated Model View", fontsize=14)
+        ax1.set_xlabel("Merger Times (Myr)")
+        ax1.set_ylabel("Count per Bin")
+        ax1.grid(axis='both', alpha=0.3)
+
+        # Overlaid view
+        # First, draw the background "spaghetti" of all other models
+        for other_mid, other_info in model_data_dict.items():
+            if other_mid != mid:
+                ax2.plot(bin_centers, other_info['counts'], color='gray', alpha=0.1, linewidth=1.5)
+
+        # Then, draw the specific model bolded on top
+        ax2.plot(bin_centers, m_info['counts'], marker='o', linestyle='-', color='tab:blue', linewidth=3.5,
+                 label=f"Model {mid:.0f}")
+        ax2.set_title("Context (Overlaid against all others)", fontsize=14)
+        ax2.set_xlabel("Merger Times (Myr)")
+        ax2.set_ylabel("Count per Bin")
+        ax2.grid(axis='both', alpha=0.3)
+        ax2.legend()
+
+        plt.tight_layout()
+        plt.show()
 
 def filter_k_values(data, k_min=10, k_max=12):
     """Removes k values smaller than k_min (k<10 = not a WD) and values greater than k_max (k>12 = not a WD) from the data
@@ -604,7 +644,8 @@ def overlay_mass_fractions(datasets, model_name="", bin_size=1000):
     plt.tight_layout()
     plt.show()
 
-def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50, cluster_density_mpc3=1.0):
+def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50,
+                             cluster_density_mpc3=1.0, model_stats=None, mc_draws=1):
     """
     Plots the merger rate density R(z) in Gpc^-3 yr^-1 vs redshift z.
     Includes a secondary top axis showing the Age of the Universe in Gyr.
@@ -615,7 +656,13 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50, cl
     z_max - maximum redshift to plot (default 10.0).
     num_bins - number of redshift bins.
     cluster_density_mpc3 - Assumed density of clusters in the universe in Mpc^-3.
+    model_stats - dictionary of the models statistics for cluster birthtimes and weights
     """
+
+    if model_stats is None:
+        print ("Model statistics not provided!")
+        return
+
     fig, ax = plt.subplots(figsize=(10, 6))
 
     # Define colors for each group value
@@ -626,15 +673,9 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50, cl
     for data in datasets.values():
         if len(data) > 0:
             all_model_ids.update(data[:, 0])
-    unique_models = list(all_model_ids)
-    total_models = len(all_model_ids) if len(all_model_ids) > 0 else 1
 
     # Combine datasets into 1 set
     combined_data = np.vstack(list(datasets.values()))
-
-    # Call Cluster Weight Calculator across all the datasets (normalized all together)
-    model_stats = cwc.assign_model_weights_and_times(combined_data)
-    inspect_model_weights(model_stats)
 
     # Pre-compute a high-resolution grid for instant interpolation from time to z
     z_grid = np.linspace(0, 100, 10000)
@@ -668,7 +709,24 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50, cl
         birth_times = np.array([model_stats[mid]['birth_time_myr'] for mid in model_ids])
         model_weights = np.array([model_stats[mid]['weight'] for mid in model_ids])
 
-        # === Raw N-Body Data ===
+        # Data smoothing with Monte Carlo Augmentation
+        if mc_draws > 1:
+            # Calculate the actual standard deviation of t_merger for each unique model
+            std_dict = {mid: np.std(t_merger_myr[model_ids == mid]) for mid in np.unique(model_ids)}
+            m_stds = np.array([std_dict[mid] for mid in model_ids])
+
+            # Duplicate the entire dataset 'mc_draws' times
+            t_merger_myr = np.tile(t_merger_myr, mc_draws)
+            birth_times = np.tile(birth_times, mc_draws)
+            m_stds = np.tile(m_stds, mc_draws)
+
+            # Divide the weights by mc_draws so the overall cosmological density stays exactly the same
+            model_weights = np.tile(model_weights, mc_draws) / mc_draws
+
+            # Fill the gaps: Add a random draw (jitter) based on each model's std
+            # We use 10% of the std so it fills bins without destroying the macro physical shape
+            noise = np.random.normal(0, m_stds * 0.10)
+            t_merger_myr = np.clip(t_merger_myr + noise, 0, None)  # Clip at 0 so time doesn't go negative
 
         # Absolute Cosmic Time = Birth Time + Delay Time
         t_merger_cosmic_myr = t_merger_myr + birth_times
@@ -692,17 +750,17 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50, cl
         # Plot the Individual Mergers as ticks on the top axis (Rug Plot)
         # transform=ax.get_xaxis_transform() locks the y-coordinate to the axis fraction (1.0 = exactly the top spine)
         ax.plot(z_mergers, np.full_like(z_mergers, 1.0), marker='|', color=color,
-                linestyle='None', alpha=0.4, markersize=8,
+                linestyle='None', alpha=0.7, markersize=8,
                 transform=ax.get_xaxis_transform(), clip_on=False)
 
         # === Gaussian Smoothing (Overlay) ===
-        smooth_rate = gaussian_filter1d(rate_density, sigma=3)
+        # smooth_rate = gaussian_filter1d(rate_density, sigma=3)
 
         # Only plot where the smoothed line is above 0
-        mask_smooth = smooth_rate > 0
+        # mask_smooth = smooth_rate > 0
 
-        ax.plot(z_centers[mask_smooth], smooth_rate[mask_smooth], marker='', linestyle='--',
-                label=f"{label} (Smoothed)", color=color, linewidth=2.5)
+        # ax.plot(z_centers[mask_smooth], smooth_rate[mask_smooth], marker='', linestyle='--',
+        #        label=f"{label} (Smoothed)", color=color, linewidth=2.5)
 
     # === Formatting the plot to match the reference image ===
     ax.set_yscale('log')
@@ -734,9 +792,11 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50, cl
 
 # === Main functions for starting plots ===
 def setup_data():
-    # Collisions of at least 1 compact object (WD, NS, or BH)
+
+    # Collision data
     co_collisions = np.loadtxt("data/CO_collisions_binaryfraction.dat")
-    # Collisions of at least 1 WD
+
+    # WD data
     wd_mergers = np.loadtxt("data/WD_mergers_binaryfraction.dat")
 
     sorted_co = sort_binary_mass(co_collisions)
@@ -744,11 +804,7 @@ def setup_data():
 
     # Filter to keep only systems with both k >= 10 (WD, NS, BH, or combinations)
     sorted_co = filter_k_values(sorted_co)
-    # sorted_co = remove_specific_model_group(sorted_co)
-    # sorted_co = remove_specific_model_group(sorted_co, target_rv=1.0)
     sorted_wd = filter_k_values(sorted_wd)
-    # sorted_wd = remove_specific_model_group(sorted_wd)
-    # sorted_wd = remove_specific_model_group(sorted_wd, target_rv=1.0)
 
     # Columns reference:
     # [0:"modelID", 1:"rv(pc)", 2:"Rgc(kpc)", 3:"Z", 4:"N(x10^5)", 5:"t_merger(Myr)", ...]
@@ -761,8 +817,12 @@ def setup_data():
     sorted_co = remove_specific_model_group(sorted_co, flagged_models)
     sorted_wd = remove_specific_model_group(sorted_wd, flagged_models)
 
+    # Call Cluster Weight Calculator across all the datasets (normalized all together)
+    model_stats_all = cwc.assign_model_weights_and_times(combined_data)
+    model_stats_filtered = cwc.assign_model_weights_and_times(clean_data)
+
     # Check Anomalies
-    mergers_vs_time_by_model(combined_data)
+    # mergers_vs_time_by_model(combined_data, model_stats=model_stats_all)
 
     # Compare WD, CO, and combined data
     datasets = {
@@ -770,11 +830,15 @@ def setup_data():
         "WD Data": sorted_wd[:,:12],
         "Combined Data": clean_data,
     }
-    plot_merger_rate_density(datasets, group_name="WD, CO, and combined data", z_max=2.0, num_bins=50,
-                             cluster_density_mpc3=1.0)
+    #plot_merger_rate_density(datasets, group_name="WD, CO, and Combined Data", z_max=2.0, num_bins=50,
+    #                         cluster_density_mpc3=1.0, model_stats=model_stats_all, mc_draws=0)
 
     # Plot the data
-    plots(clean_data, "all Mergers")
+    mass_datasets = generate_mass_groups(clean_data)
+    plot_merger_rate_density(mass_datasets, group_name="Filtered Mass-Separated Data", z_max=2.0, num_bins=100,
+                             cluster_density_mpc3=1.0, model_stats=model_stats_filtered, mc_draws=200)
+    plot_merger_rate_density(mass_datasets, group_name="Filtered Mass-Separated Data", z_max=2.0, num_bins=30,
+                             cluster_density_mpc3=1.0, model_stats=model_stats_filtered, mc_draws=0)
 
     print("Finished plotting all data.")
 
@@ -804,12 +868,8 @@ def plots(data, model=""):
         #!overlay_mergers_by_group(filtered_datasets, group_name=group_name, data_type=model)
         #!mergers_over_time_loglog_by_group(filtered_datasets, group_name=group_name, data_type=model)
 
-    mass_datasets = generate_mass_groups(data)
-
     #!overlay_mass_fractions(mass_datasets, model_name=model)
 
-    plot_merger_rate_density(mass_datasets, group_name=model, z_max=2.0, num_bins=50,
-                             cluster_density_mpc3=1.0)
-
-
 setup_data()
+
+# Smooth by bins/random draws
