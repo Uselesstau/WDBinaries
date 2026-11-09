@@ -645,7 +645,7 @@ def overlay_mass_fractions(datasets, model_name="", bin_size=1000):
     plt.show()
 
 def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50,
-                             cluster_density_mpc3=1.0, model_stats=None, mc_draws=1):
+                             cluster_density_mpc3=2.1, model_stats=None):
     """
     Plots the merger rate density R(z) in Gpc^-3 yr^-1 vs redshift z.
     Includes a secondary top axis showing the Age of the Universe in Gyr.
@@ -668,15 +668,6 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50,
     # Define colors for each group value
     colors = plt.cm.tab10(np.linspace(0, 1, len(datasets)))
 
-    # Find the total number of unique models simulated across all groups
-    all_model_ids = set()
-    for data in datasets.values():
-        if len(data) > 0:
-            all_model_ids.update(data[:, 0])
-
-    # Combine datasets into 1 set
-    combined_data = np.vstack(list(datasets.values()))
-
     # Pre-compute a high-resolution grid for instant interpolation from time to z
     z_grid = np.linspace(0, 100, 10000)
     t_grid = Planck18.age(z_grid).to(u.Myr).value
@@ -696,75 +687,84 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50,
     density_gpc3 = cluster_density_mpc3 * 1e9
 
     # Get the sum of all independent weights across ALL models in dataset
-    total_grid_weight = sum([info['weight'] for info in model_stats.values()])
+    total_grid_weight = 0.0
+    for info in model_stats.values():
+        z_array = info['z_array']
+        weight_dist = info['weight_dist']
+        # Calculate the delta-z (width of the probability bins)
+        dz = z_array[1] - z_array[0] if len(z_array) > 1 else 1.0
+        # The true weight of the model is the integral (area) of its probability curve
+        total_grid_weight += np.sum(weight_dist) * dz
 
     for (label, group_data), color in zip(sorted(datasets.items()), colors):
         if len(group_data) == 0:
             continue
 
-        model_ids = group_data[:, 0]
-        t_merger_myr = group_data[:, 5]
+        unique_mids = np.unique(group_data[:, 0])
 
-        # Retrieve the assigned birth time for every model in this group
-        birth_times = np.array([model_stats[mid]['birth_time_myr'] for mid in model_ids])
-        model_weights = np.array([model_stats[mid]['weight'] for mid in model_ids])
+        # Accumulator for the whole group
+        group_counts = np.zeros(num_bins)
+        rug_z_mergers = []  # Holds peak values for the visual top-ticks
 
-        # Data smoothing with Monte Carlo Augmentation
-        if mc_draws > 1:
-            # Calculate the actual standard deviation of t_merger for each unique model
-            std_dict = {mid: np.std(t_merger_myr[model_ids == mid]) for mid in np.unique(model_ids)}
-            m_stds = np.array([std_dict[mid] for mid in model_ids])
+        # Process model by model to apply unique weight distributions
+        for mid in unique_mids:
 
-            # Duplicate the entire dataset 'mc_draws' times
-            t_merger_myr = np.tile(t_merger_myr, mc_draws)
-            birth_times = np.tile(birth_times, mc_draws)
-            m_stds = np.tile(m_stds, mc_draws)
+            # Skip if model isn't in stats
+            if mid not in model_stats: continue
 
-            # Divide the weights by mc_draws so the overall cosmological density stays exactly the same
-            model_weights = np.tile(model_weights, mc_draws) / mc_draws
+            model_data = group_data[group_data[:, 0] == mid]
+            tau = model_data[:, 5]  # Delay times (Myr)
 
-            # Fill the gaps: Add a random draw (jitter) based on each model's std
-            # We use 10% of the std so it fills bins without destroying the macro physical shape
-            noise = np.random.normal(0, m_stds * 0.10)
-            t_merger_myr = np.clip(t_merger_myr + noise, 0, None)  # Clip at 0 so time doesn't go negative
+            # === Peak Estimate ===
+            # Save the "most likely" merger time just for the visual ticks on top
+            t_birth_peak = model_stats[mid]['birth_time_myr']
+            z_peak = np.interp(tau + t_birth_peak, t_grid_rev, z_grid_rev, right=-1.0)
+            rug_z_mergers.extend(z_peak)
 
-        # Absolute Cosmic Time = Birth Time + Delay Time
-        t_merger_cosmic_myr = t_merger_myr + birth_times
+            # === COSMOLOGICAL CONVOLUTION ===
+            z_array = model_stats[mid]['z_array']
+            weight_dist = model_stats[mid]['weight_dist']
+            dz = z_array[1] - z_array[0] if len(z_array) > 1 else 1.0
 
-        # Map the absolute cosmic merger times to redshift
-        z_mergers = np.interp(t_merger_cosmic_myr, t_grid_rev, z_grid_rev, right=0.0)
+            # Convert the model's z_array into birth times
+            t_birth_array = np.interp(z_array, z_grid, t_grid)
 
-        # Pass the model weights into the histogram
-        counts, _ = np.histogram(z_mergers, bins=z_edges, weights=model_weights)
+            # Create a 2D matrix: [Every Merger] evaluated at [Every Birth Redshift]
+            # Shape: (N_mergers) x (N_z_bins)
+            t_cosmic_2d = tau[:, None] + t_birth_array[None, :]
 
-        # Calculate the Volumetric Rate Density R(z)
-        rate_density = (counts / total_grid_weight) / dt_yr * density_gpc3
+            # Convert the entire 2D matrix of cosmic times back into redshift
+            z_cosmic_2d = np.interp(t_cosmic_2d, t_grid_rev, z_grid_rev, right=-1.0)
 
-        # Mask out bins with 0 mergers
+            # The true weight assigned to each point is its probability slice,
+            # divided by mc_draws so we don't accidentally multiply the universe's density
+            bin_weights = (weight_dist * dz)
+            weights_2d = np.tile(bin_weights, (len(tau), 1))
+
+            # Flatten the 2D arrays and drop them into the group's overall histogram
+            counts, _ = np.histogram(z_cosmic_2d.flatten(), bins=z_edges, weights=weights_2d.flatten())
+            group_counts += counts
+
+        # Calculate the Volumetric Rate Density R(z) using the convolved counts
+        rate_density = (group_counts / total_grid_weight) / dt_yr * density_gpc3
+
         mask = rate_density > 0
 
-        # Plot
+        # Plot main line
         ax.plot(z_centers[mask], rate_density[mask], marker='', linestyle='-',
-                label=label, color=color, linewidth=2, alpha=0.25)
+                label=label, color=color, linewidth=2, alpha=0.75)  # Increased alpha slightly so it's readable
 
-        # Plot the Individual Mergers as ticks on the top axis (Rug Plot)
-        # transform=ax.get_xaxis_transform() locks the y-coordinate to the axis fraction (1.0 = exactly the top spine)
-        ax.plot(z_mergers, np.full_like(z_mergers, 1.0), marker='|', color=color,
-                linestyle='None', alpha=0.7, markersize=8,
-                transform=ax.get_xaxis_transform(), clip_on=False)
+        # Plot the Individual Mergers as ticks on the top axis
+        if len(rug_z_mergers) > 0:
+            rug_z_mergers = np.array(rug_z_mergers)
+            ax.plot(rug_z_mergers, np.full_like(rug_z_mergers, 1.0), marker='|', color=color,
+                    linestyle='None', alpha=0.3, markersize=8,
+                    transform=ax.get_xaxis_transform(), clip_on=False)
 
-        # === Gaussian Smoothing (Overlay) ===
-        # smooth_rate = gaussian_filter1d(rate_density, sigma=3)
-
-        # Only plot where the smoothed line is above 0
-        # mask_smooth = smooth_rate > 0
-
-        # ax.plot(z_centers[mask_smooth], smooth_rate[mask_smooth], marker='', linestyle='--',
-        #        label=f"{label} (Smoothed)", color=color, linewidth=2.5)
-
-    # === Formatting the plot to match the reference image ===
+        # === Formatting the plot to match the reference image ===
     ax.set_yscale('log')
     ax.set_xlim(0, z_max)
+    ax.set_ylim(bottom=1e-2)
 
     ax.set_xlabel("Redshift $z$", fontsize=14)
     ax.set_ylabel(r"$\mathcal{R}(z) \, [\mathrm{Gpc}^{-3} \, \mathrm{yr}^{-1}]$", fontsize=14)
@@ -772,7 +772,7 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50,
 
     # === Setting up the Secondary Axis (Top) ===
     def z_to_age(z):
-        z_clipped = np.clip(z, 0, 100) # Prevents out-of-bounds calculations
+        z_clipped = np.clip(z, 0, 100)  # Prevents out-of-bounds calculations
         return np.interp(z_clipped, z_grid, t_grid_gyr)
 
     def age_to_z(age):
@@ -787,6 +787,73 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50,
     ax.grid(True, which='minor', linestyle=':', alpha=0.3)
 
     ax.legend(fontsize=11)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_model_weight_distributions(model_stats, normalize=False, max_models_in_legend=20):
+    """
+    Plots the weight distribution over redshift for EVERY INDIVIDUAL MODEL.
+
+    Arguments:
+    model_stats: Dictionary output from assign_model_weights_and_times.
+    normalize: If True, scales each model's curve so its peak touches 1.0.
+               If False, plots the absolute raw weight values on a log scale.
+    max_models_in_legend: Caps the legend size to prevent Matplotlib from crashing.
+    """
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    # Sort models by their peak weight so the heaviest ones are plotted on top
+    sorted_models = sorted(model_stats.items(), key=lambda item: item[1]['weight'])
+
+    # Give every individual model a unique color
+    colors = plt.cm.viridis(np.linspace(0, 1, len(sorted_models)))
+
+    count = 0
+    for (mid, stats), color in zip(sorted_models, colors):
+        z_array = stats['z_array']
+        weight_dist = stats['weight_dist']  # The unique weight value for every z bin!
+
+        # Determine if we are plotting raw weights or normalized shapes
+        if normalize and np.max(weight_dist) > 0:
+            y_data = weight_dist / np.max(weight_dist)
+        else:
+            y_data = weight_dist
+
+        # Only add a label for the legend up to the limit
+        label = f"Model {mid:.0f}" if count < max_models_in_legend else ""
+
+        # Plot the model's weight distribution curve
+        ax.plot(z_array, y_data, color=color, alpha=0.6, linewidth=2, label=label)
+
+        # Plot a small dot exactly at the peak (the estimated birth time)
+        best_idx = np.argmax(y_data)
+        ax.plot(z_array[best_idx], y_data[best_idx], marker='o', color=color, markersize=5, alpha=0.8)
+
+        count += 1
+
+    # === Formatting ===
+    if normalize:
+        ax.set_title("Normalized Weight Distribution per Model Over Redshift", fontsize=14)
+        ax.set_ylabel("Relative Probability (Peak = 1.0)", fontsize=12)
+    else:
+        ax.set_title("Absolute Weight Distribution per Model Over Redshift", fontsize=14)
+        ax.set_ylabel("Absolute Cosmological Weight", fontsize=12)
+        ax.set_yscale('log')  # Log scale is required because raw weights vary by orders of magnitude
+
+    ax.set_xlabel("Redshift $z$", fontsize=12)
+
+    # Handle the legend safely
+    if len(sorted_models) > max_models_in_legend:
+        ax.legend(title=f"Top {max_models_in_legend} Models", loc='upper right', bbox_to_anchor=(1.15, 1))
+        # Add a text box letting you know how many lines are actually plotted
+        ax.text(1.02, 0.02, f"Total Models\nPlotted: {len(sorted_models)}",
+                transform=ax.transAxes, fontsize=11,
+                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8))
+    else:
+        ax.legend(title="Models", loc='upper right', bbox_to_anchor=(1.15, 1))
+
+    ax.grid(True, linestyle='--', alpha=0.4)
     plt.tight_layout()
     plt.show()
 
@@ -818,8 +885,8 @@ def setup_data():
     sorted_wd = remove_specific_model_group(sorted_wd, flagged_models)
 
     # Call Cluster Weight Calculator across all the datasets (normalized all together)
-    model_stats_all = cwc.assign_model_weights_and_times(combined_data)
-    model_stats_filtered = cwc.assign_model_weights_and_times(clean_data)
+    model_stats_all = cwc.assign_model_weights_and_times(combined_data, num_z_bins=50, z_max=20.0)
+    model_stats_filtered = cwc.assign_model_weights_and_times(clean_data, num_z_bins=50, z_max=20.0)
 
     # Check Anomalies
     # mergers_vs_time_by_model(combined_data, model_stats=model_stats_all)
@@ -831,14 +898,20 @@ def setup_data():
         "Combined Data": clean_data,
     }
     #plot_merger_rate_density(datasets, group_name="WD, CO, and Combined Data", z_max=2.0, num_bins=50,
-    #                         cluster_density_mpc3=1.0, model_stats=model_stats_all, mc_draws=0)
+    #                         cluster_density_mpc3=2.1, model_stats=model_stats_all)
+
+    # Print Earliest merger time
+    print(f"\nEarliest merger time in Myrs: {clean_data[5].min()}\n")
 
     # Plot the data
     mass_datasets = generate_mass_groups(clean_data)
-    plot_merger_rate_density(mass_datasets, group_name="Filtered Mass-Separated Data", z_max=2.0, num_bins=100,
-                             cluster_density_mpc3=1.0, model_stats=model_stats_filtered, mc_draws=200)
-    plot_merger_rate_density(mass_datasets, group_name="Filtered Mass-Separated Data", z_max=2.0, num_bins=30,
-                             cluster_density_mpc3=1.0, model_stats=model_stats_filtered, mc_draws=0)
+    plot_merger_rate_density(mass_datasets, group_name="Filtered Mass-Separated Data", z_max=6.5, num_bins=50,
+                            cluster_density_mpc3=2.1, model_stats=model_stats_filtered)
+
+    cwc.inspect_model_weights(model_stats_filtered)
+    plot_model_weight_distributions(model_stats_filtered, normalize=True, max_models_in_legend=24)
+    plot_model_weight_distributions(model_stats_filtered, normalize=False, max_models_in_legend=24)
+
 
     print("Finished plotting all data.")
 
@@ -872,4 +945,4 @@ def plots(data, model=""):
 
 setup_data()
 
-# Smooth by bins/random draws
+# core radius

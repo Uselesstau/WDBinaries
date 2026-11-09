@@ -89,34 +89,31 @@ class ClusterWeightCalculator:
 
         return num / den
 
-    def calculate_model(self, rv, Z, N, avg_GC_mass):
+    def calculate_model_distribution(self, rv, Z, N, z_array):
         """
-        Calculates the optimal birth redshift and independent statistical weight.
+        Calculates the statistical weight of the model across an array of redshifts.
+        Returns the peak redshift, corresponding birth time, the peak weight, and the full weight distribution.
         """
-        def neg_prob(z):
-            if z < 0 or z > 20:
-                return 0.0
-            return -(self._formation_rate_density(z) * self._metallicity_weight(Z, z))
-
-        res = minimize_scalar(neg_prob, bounds=(0, 20), method='bounded')
-
-        best_z = res.x
-        birth_time_myr = Planck18.age(best_z).to(u.Myr).value
-
-        # Calculate the independent combined weight
+        # Calculate the components that are independent of redshift
         w_mass = self._mass_weight(N)
         w_radius = self._radius_weight(rv)
         w_correction = self._k_gw_correction(Z, rv)
-        w_z = -res.fun
 
-        # Verify this value matches rate*Avg M_GC = f_cl = 0.258
-        phi = 0.01 * ((1 + res.x) ** 2.6) / (1 + ((1 + res.x) / 3.2) ** 6.2)
-        #print(self._formation_rate_density(res.x) * avg_GC_mass * w_mass * 100 / phi)
+        # Calculate the redshift-dependent components across the entire z_array
+        w_z_array = self._formation_rate_density(z_array) * self._metallicity_weight(Z, z_array)
 
-        # This is the standalone weight for this specific configuration
-        independent_weight = w_mass * w_radius * w_z * w_correction
+        # Total weight distribution across the given redshifts
+        weight_array = w_mass * w_radius * w_correction * w_z_array
 
-        return best_z, birth_time_myr, independent_weight
+        # Find the bin with the highest weight (the most likely birth time)
+        best_idx = np.argmax(weight_array)
+        best_z = z_array[best_idx]
+        peak_weight = weight_array[best_idx]
+
+        # Safety check in case the peak is at z=0 and Planck18 complains, though usually fine
+        birth_time_myr = Planck18.age(best_z).to(u.Myr).value
+
+        return best_z, birth_time_myr, peak_weight, weight_array
 
 
 def inspect_model_weights(model_stats, top_n=22):
@@ -152,11 +149,14 @@ def inspect_model_weights(model_stats, top_n=22):
     print(f"Showing Top {top_n} out of {len(model_stats)} models.\n")
 
 
-def assign_model_weights_and_times(data):
+def assign_model_weights_and_times(data, num_z_bins=10, z_max=15.0):
     """
-    Extracts unique models and calculates their independent birth times and weights.
+    Extracts unique models and calculates their independent birth times and weight distributions.
     """
-    print("\nCalculating cosmological birth times and independent weights for models...")
+    print(f"\nCalculating weight distributions across {num_z_bins} redshift bins (z=0 to {z_max})...")
+
+    # Define the redshift bins to evaluate for every model
+    z_array = np.linspace(0, z_max, num_z_bins)
 
     unique_mids = np.unique(data[:, 0])
     GC_avg_masses = {}
@@ -174,8 +174,8 @@ def assign_model_weights_and_times(data):
     model_results = {}
 
     for mid, props in unique_models.items():
-        best_z, birth_myr, indep_weight = calculator.calculate_model(
-            props['rv'], props['Z'], props['N'], props['Mean M']
+        best_z, birth_myr, peak_weight, weight_dist = calculator.calculate_model_distribution(
+            props['rv'], props['Z'], props['N'], z_array
         )
         model_results[mid] = {
             'rv': props['rv'],
@@ -183,7 +183,9 @@ def assign_model_weights_and_times(data):
             'N': props['N'],
             'birth_z': best_z,
             'birth_time_myr': birth_myr,
-            'weight': indep_weight  # Assigned independently
+            'weight': peak_weight,       # The peak weight (for the inspection table)
+            'weight_dist': weight_dist,  # The full array of weights
+            'z_array': z_array           # The redshifts evaluated
         }
 
     print(f"    - Successfully processed {len(model_results)} unique models.")
