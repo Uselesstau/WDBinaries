@@ -719,9 +719,10 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50,
             # Save the "most likely" merger time just for the visual ticks on top
             t_birth_peak = model_stats[mid]['birth_time_myr']
             z_peak = np.interp(tau + t_birth_peak, t_grid_rev, z_grid_rev, right=-1.0)
-            rug_z_mergers.extend(z_peak)
+            valid_z_peak = z_peak[z_peak >= 0]
+            rug_z_mergers.extend(valid_z_peak)
 
-            # === COSMOLOGICAL CONVOLUTION ===
+            # === Cosmological Convolution ===
             z_array = model_stats[mid]['z_array']
             weight_dist = model_stats[mid]['weight_dist']
             dz = z_array[1] - z_array[0] if len(z_array) > 1 else 1.0
@@ -761,10 +762,24 @@ def plot_merger_rate_density(datasets, group_name="", z_max=5.0, num_bins=50,
                     linestyle='None', alpha=0.3, markersize=8,
                     transform=ax.get_xaxis_transform(), clip_on=False)
 
-        # === Formatting the plot to match the reference image ===
+    # === Plot Reference curve - Cosmic Star Formation Rate ===
+    # Create a smooth, high-resolution array of redshifts for the curve
+    z_sfr = np.linspace(0, z_max, 200)
+
+    # Madau & Fragos (2017) formula
+    psi_z = 0.01 * ((1 + z_sfr) ** 2.6) / (1 + ((1 + z_sfr) / 3.2) ** 6.2)
+
+    # Scale it so the peak sits exactly at 1.0 (10^0)
+    psi_z_normalized = psi_z / np.max(psi_z)
+
+    # Plot as a dashed reference line
+    ax.plot(z_sfr, psi_z_normalized, linestyle='--', color='tab:blue',
+            linewidth=1.5, alpha=0.8, label='Star Formation Rate')
+
+    # === Formatting the plot to match the reference image ===
     ax.set_yscale('log')
     ax.set_xlim(0, z_max)
-    ax.set_ylim(bottom=1e-2)
+    ax.set_ylim(bottom=1e-1)
 
     ax.set_xlabel("Redshift $z$", fontsize=14)
     ax.set_ylabel(r"$\mathcal{R}(z) \, [\mathrm{Gpc}^{-3} \, \mathrm{yr}^{-1}]$", fontsize=14)
@@ -885,8 +900,8 @@ def setup_data():
     sorted_wd = remove_specific_model_group(sorted_wd, flagged_models)
 
     # Call Cluster Weight Calculator across all the datasets (normalized all together)
-    model_stats_all = cwc.assign_model_weights_and_times(combined_data, num_z_bins=50, z_max=20.0)
-    model_stats_filtered = cwc.assign_model_weights_and_times(clean_data, num_z_bins=50, z_max=20.0)
+    model_stats_all = cwc.assign_model_weights_and_times(combined_data, num_z_bins=1000, z_max=20.0)
+    model_stats_filtered = cwc.assign_model_weights_and_times(clean_data, num_z_bins=1000, z_max=20.0)
 
     # Check Anomalies
     # mergers_vs_time_by_model(combined_data, model_stats=model_stats_all)
@@ -905,12 +920,12 @@ def setup_data():
 
     # Plot the data
     mass_datasets = generate_mass_groups(clean_data)
-    plot_merger_rate_density(mass_datasets, group_name="Filtered Mass-Separated Data", z_max=6.5, num_bins=50,
+    plot_merger_rate_density(mass_datasets, group_name="Filtered Mass-Separated Data", z_max=6.5, num_bins=100,
                             cluster_density_mpc3=2.1, model_stats=model_stats_filtered)
 
-    cwc.inspect_model_weights(model_stats_filtered)
-    plot_model_weight_distributions(model_stats_filtered, normalize=True, max_models_in_legend=24)
-    plot_model_weight_distributions(model_stats_filtered, normalize=False, max_models_in_legend=24)
+    #cwc.inspect_model_weights(model_stats_filtered)
+    #plot_model_weight_distributions(model_stats_filtered, normalize=True, max_models_in_legend=24)
+    #plot_model_weight_distributions(model_stats_filtered, normalize=False, max_models_in_legend=24)
 
 
     print("Finished plotting all data.")
